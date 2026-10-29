@@ -264,17 +264,15 @@ func (s *Store) GetInsightExclusions() (models.InsightExclusions, error) {
 	return exclusions, nil
 }
 
-// ToggleInsightExclusion leaves a transaction out of the insights, or puts it
-// back if it was already left out, and returns the exclusions as they now
-// stand.
-func (s *Store) ToggleInsightExclusion(id string) (models.InsightExclusions, error) {
+// SetInsightExclusion leaves a transaction out of the insights, or puts it
+// back, and returns the exclusions as they now stand.
+func (s *Store) SetInsightExclusion(id string, excluded bool) (models.InsightExclusions, error) {
 	exclusions, err := s.GetInsightExclusions()
 	if err != nil {
 		return exclusions, err
 	}
-	if slices.Contains(exclusions.TransactionIDs, id) {
-		exclusions.TransactionIDs = slices.DeleteFunc(exclusions.TransactionIDs, func(t string) bool { return t == id })
-	} else {
+	exclusions.TransactionIDs = slices.DeleteFunc(exclusions.TransactionIDs, func(t string) bool { return t == id })
+	if excluded {
 		exclusions.TransactionIDs = append(exclusions.TransactionIDs, id)
 	}
 	return exclusions, Update[models.InsightExclusions](s.db, exclusions)

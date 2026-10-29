@@ -254,6 +254,12 @@ func classifySpend(tx models.Transaction) (string, bool) {
 	if key, ok := assignedGroup(tx.Id); ok {
 		return key, true
 	}
+	return ruleGroup(tx)
+}
+
+// ruleGroup is the group the rules alone put a transaction in, ignoring any
+// group the owner chose by hand.
+func ruleGroup(tx models.Transaction) (string, bool) {
 	if tx.Amount < 0 {
 		for _, group := range spendGroups {
 			if slices.Contains(group.Types, tx.Type) {

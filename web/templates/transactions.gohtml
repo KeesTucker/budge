@@ -110,8 +110,7 @@
                             <div class="b-tx-amount {{ if gt .Amount 0.0 }}text-success{{ else }}text-danger{{ end }}">
                                 {{ .Amount | fmtCurrency }}
                             </div>
-                            {{ template "transactions.insight" (dict "ID" .Id "Insight" .Insight "Excluded" .Excluded "Layout" "m") }}
-                            {{ template "transactions.group" (dict "ID" .Id "Assigned" .Assigned "Groups" $.groups "Layout" "m") }}
+                            {{ template "transactions.category" (dict "ID" .Id "Insight" .Insight "Automatic" .Automatic "Excluded" .Excluded "Assigned" .Assigned "Groups" $.groups "Layout" "m") }}
                             {{ template "transactions.memory" (dict "ID" .Id "MemoryID" .MemoryID "MemoryTitle" .MemoryTitle "Layout" "m" "Options" $.memories "Kinds" $.kinds) }}
                         </div>
                     {{ end }}
@@ -153,8 +152,7 @@
                             </td>
                             <td class="b-txmem-cell">
                                 <div class="d-flex align-items-center justify-content-end gap-1">
-                                {{ template "transactions.insight" (dict "ID" .Id "Insight" .Insight "Excluded" .Excluded "Layout" "d") }}
-                                {{ template "transactions.group" (dict "ID" .Id "Assigned" .Assigned "Groups" $.groups "Layout" "d") }}
+                                {{ template "transactions.category" (dict "ID" .Id "Insight" .Insight "Automatic" .Automatic "Excluded" .Excluded "Assigned" .Assigned "Groups" $.groups "Layout" "d") }}
                                 {{ template "transactions.memory" (dict "ID" .Id "MemoryID" .MemoryID "MemoryTitle" .MemoryTitle "Layout" "d" "Options" $.memories "Kinds" $.kinds) }}
                                 </div>
                             </td>
@@ -325,51 +323,32 @@
 
 {{ define "transactions.memory.swap" }}{{ range . }}{{ template "transactions.memory" . }}{{ end }}{{ end }}
 
-{{/* Whether a transaction counts towards its spend insight, for taking out
-     the odd one a rule gets wrong. Only drawn for a transaction an insight
-     would count. Drawn twice like the memory control, for the same reason. */}}
-{{ define "transactions.insight" }}
-<span id="txins-{{ .Layout }}-{{ .ID }}"{{ if .OOB }} hx-swap-oob="true"{{ end }}>
-    {{ if .Insight }}
-        <button type="button" class="btn btn-sm btn-link p-0 {{ if .Excluded }}text-muted{{ else }}text-body{{ end }}"
-                hx-post="/transactions/{{ .ID }}/insight" hx-vals='{"layout": "{{ .Layout }}"}'
-                hx-target="#txins-{{ .Layout }}-{{ .ID }}" hx-swap="outerHTML"
-                title="{{ if .Excluded }}Not counted in {{ .Insight }}. Count it again{{ else }}Counted in {{ .Insight }}. Stop counting it{{ end }}"
-                aria-label="{{ if .Excluded }}Count in {{ .Insight }} again{{ else }}Stop counting in {{ .Insight }}{{ end }}">
-            <i class="bi {{ if .Excluded }}bi-pie-chart opacity-50{{ else }}bi-pie-chart-fill{{ end }}"></i>
-        </button>
-    {{ end }}
-</span>
-{{ end }}
-
-{{ define "transactions.insight.swap" }}{{ range . }}{{ template "transactions.insight" . }}{{ end }}{{ end }}
-
-
-{{/* Putting a transaction in a spend group by hand, for the one no rule
-     catches. Drawn twice like the memory control, for the same reason. */}}
-{{ define "transactions.group" }}
-<details class="b-txmem" id="txgrp-{{ .Layout }}-{{ .ID }}"{{ if .OOB }} hx-swap-oob="true"{{ end }}>
-    <summary class="b-txmem-toggle{{ if .Assigned }} b-txmem-in{{ end }}"
-             title="{{ if .Assigned }}Put in a category by hand. Change it{{ else }}Add to a category{{ end }}"
-             aria-label="{{ if .Assigned }}Change category{{ else }}Add to a category{{ end }}">
-        <i class="bi {{ if .Assigned }}bi-tag-fill{{ else }}bi-tag{{ end }}"></i>
+{{/* Which insight a transaction counts towards: whatever the rules say, a
+     group chosen by hand, or none at all, for the odd one a rule gets wrong.
+     Drawn twice like the memory control, for the same reason. */}}
+{{ define "transactions.category" }}
+<details class="b-txmem" id="txcat-{{ .Layout }}-{{ .ID }}"{{ if .OOB }} hx-swap-oob="true"{{ end }}>
+    {{ $state := "" }}
+    {{ if .Excluded }}{{ $state = "none" }}{{ else if .Assigned }}{{ $state = .Assigned }}{{ end }}
+    <summary class="b-txmem-toggle{{ if or .Assigned .Excluded }} b-txmem-in{{ end }}"
+             title="{{ if .Excluded }}Not counted in any insight{{ else if .Assigned }}Counted in {{ .Insight }}, chosen by you{{ else if .Insight }}Counted in {{ .Insight }} automatically{{ else }}Add to a category{{ end }}"
+             aria-label="{{ if .Excluded }}Not counted in any insight. Change{{ else if .Insight }}Counted in {{ .Insight }}. Change category{{ else }}Add to a category{{ end }}">
+        <i class="bi {{ if .Excluded }}bi-slash-circle{{ else if .Assigned }}bi-tag-fill{{ else if .Insight }}bi-pie-chart-fill{{ else }}bi-tag{{ end }}"></i>
     </summary>
-    <form class="b-tl-form b-txmem-form" hx-post="/transactions/{{ .ID }}/group"
-          hx-target="#txgrp-{{ .Layout }}-{{ .ID }}" hx-swap="outerHTML">
+    <form class="b-tl-form b-txmem-form" hx-post="/transactions/{{ .ID }}/category"
+          hx-target="#txcat-{{ .Layout }}-{{ .ID }}" hx-swap="outerHTML">
         <input type="hidden" name="layout" value="{{ .Layout }}">
         <div class="b-txmem-head">Count this in</div>
-        {{ $assigned := .Assigned }}
         <select class="form-select form-select-sm" name="group" aria-label="Which category">
-            <option value="">Automatic, by the rules</option>
+            <option value=""{{ if eq $state "" }} selected{{ end }}>Automatic{{ if .Automatic }} ({{ .Automatic }}){{ else }} (none){{ end }}</option>
             {{ range .Groups }}
-                <option value="{{ .Key }}"{{ if eq .Key $assigned }} selected{{ end }}>{{ .Label }}</option>
+                <option value="{{ .Key }}"{{ if eq .Key $state }} selected{{ end }}>{{ .Label }}</option>
             {{ end }}
+            <option value="none"{{ if eq $state "none" }} selected{{ end }}>Don't count in insights</option>
         </select>
         <button class="btn btn-sm btn-primary">Save</button>
     </form>
 </details>
 {{ end }}
 
-{{/* The insight toggle rides along, since a new category changes what it
-     counts towards. */}}
-{{ define "transactions.group.swap" }}{{ range . }}{{ template "transactions.group" . }}{{ template "transactions.insight" (dict "ID" .ID "Insight" .Insight "Excluded" .Excluded "Layout" .Layout "OOB" true) }}{{ end }}{{ end }}
+{{ define "transactions.category.swap" }}{{ range . }}{{ template "transactions.category" . }}{{ end }}{{ end }}

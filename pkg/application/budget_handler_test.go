@@ -121,3 +121,43 @@ func TestGetBudgetSalaryDefaults(t *testing.T) {
 	assert.Equal(t, 3.5, salary.KiwiSaverRate)
 	assert.Zero(t, salary.Salary)
 }
+
+func TestTransactionSetCategory(t *testing.T) {
+	app := newTestApp(t)
+	t.Cleanup(func() {
+		insightAssignments.Store(nil)
+		insightExclusions.Store(nil)
+	})
+
+	tx := referenced("TRANSFER", "", "", -40)
+	tx.Id = "trans_market"
+	require.NoError(t, app.store.CreateTransaction(tx))
+
+	choose := func(group string) {
+		t.Helper()
+		c, rec := postForm(t, app, url.Values{"group": {group}, "layout": {"d"}})
+		c.SetParamNames("id")
+		c.SetParamValues(tx.Id)
+		require.NoError(t, app.TransactionSetCategory(c))
+		assert.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	choose("groceries")
+	key, ok := ClassifySpend(tx)
+	assert.True(t, ok)
+	assert.Equal(t, "groceries", key)
+
+	choose(transactionExclude)
+	_, ok = ClassifySpend(tx)
+	assert.False(t, ok, "the same control leaves it out")
+	assert.Empty(t, BuildTransactionRow(tx).Assigned, "and forgets the hand-picked group")
+
+	choose("petrol")
+	key, ok = ClassifySpend(tx)
+	assert.True(t, ok, "choosing a group counts it again")
+	assert.Equal(t, "petrol", key)
+
+	choose("")
+	_, ok = ClassifySpend(tx)
+	assert.False(t, ok, "automatic hands it back to the rules, which catch nothing")
+}
