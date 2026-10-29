@@ -167,9 +167,15 @@ func (app *Application) Budget(c echo.Context) error {
 		app.Toast(c, "Error", "Could not load category data.")
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	spread, err := app.store.GetBudgetSpread()
+	if err != nil {
+		app.Toast(c, "Error", "Could not load the monthly bills.")
+		return c.NoContent(http.StatusInternalServerError)
+	}
 	return c.Render(http.StatusOK, "budget", map[string]interface{}{
 		"Salary":    salary,
 		"SetupData": setupData,
+		"Spread":    spread,
 	})
 }
 
@@ -400,6 +406,11 @@ func (app *Application) subcatSpend(subCat, freq string) (float64, []string, err
 		windowWeeks, cutoff = 4, isoWeekStart(now).AddDate(0, 0, -4*7)
 	}
 
+	spreader, err := app.budgetSpreader()
+	if err != nil {
+		return 0, nil, err
+	}
+
 	var total float64
 	merchantSpend := make(map[string]float64)
 	subCatLower := strings.ToLower(subCat)
@@ -411,8 +422,10 @@ func (app *Application) subcatSpend(subCat, freq string) (float64, []string, err
 		if name != "" {
 			merchantSpend[name] += amt
 		}
-		if cutoff.IsZero() || tx.Date.After(cutoff) {
+		if cutoff.IsZero() {
 			total += amt
+		} else {
+			total += spreader.share(tx, amt, cutoff, now)
 		}
 	}
 	return total / windowWeeks, topMerchants(merchantSpend), nil
@@ -492,6 +505,10 @@ func (app *Application) buildSetupData() (CategorySetupData, error) {
 	if err != nil {
 		return CategorySetupData{}, err
 	}
+	spreader, err := app.budgetSpreader()
+	if err != nil {
+		return CategorySetupData{}, err
+	}
 	itemBySubCat := make(map[string]models.BudgetItem)
 	for _, it := range items {
 		itemBySubCat[strings.ToLower(it.Category)] = it
@@ -534,22 +551,14 @@ func (app *Application) buildSetupData() (CategorySetupData, error) {
 			merchantSpend[key][name] += amt
 		}
 		totals[key] += amt // always (56-week window)
-		// Independent ifs — each window is cumulative (newer txs hit multiple windows).
-		if tx.Date.After(cut13) {
-			win13[key] += amt
-		}
-		if tx.Date.After(cut8) {
-			win8[key] += amt
-		}
-		if tx.Date.After(cut4) {
-			win4[key] += amt
-		}
+		// Each window is cumulative (newer txs hit multiple windows). A
+		// monthly bill counts only the part of its month inside a window.
+		win13[key] += spreader.share(tx, amt, cut13, now)
+		win8[key] += spreader.share(tx, amt, cut8, now)
+		win4[key] += spreader.share(tx, amt, cut4, now)
 		// Trend: compare last 4 weeks vs prior 4 weeks.
-		if tx.Date.After(cut4) {
-			recent4[key] += amt
-		} else if tx.Date.After(cut8) {
-			prev4[key] += amt
-		}
+		recent4[key] += spreader.share(tx, amt, cut4, now)
+		prev4[key] += spreader.share(tx, amt, cut8, cut4)
 		if !pairSeen[key] {
 			pairSeen[key] = true
 			pairOrder = append(pairOrder, key)
@@ -859,7 +868,12 @@ func (app *Application) BudgetPerformance(c echo.Context) error {
 		}
 	}
 
-	txs, err := app.store.ReadTransactionsByDate(starts[0].Add(-time.Second), time.Now())
+	// A monthly bill paid before the first period still covers part of it.
+	txs, err := app.store.ReadTransactionsByDate(budgetSpreadLookback(starts[0]), time.Now())
+	if err != nil {
+		return err
+	}
+	spreader, err := app.budgetSpreader()
 	if err != nil {
 		return err
 	}
@@ -903,15 +917,32 @@ func (app *Application) BudgetPerformance(c echo.Context) error {
 	totals := make(map[time.Time]float64)
 	incoming := make(map[time.Time]float64)
 	external := externalTransfers(txs)
+	periodEnd := func(start time.Time) time.Time {
+		if span.Monthly {
+			return spendPeriodAdd(start, cadence, 1)
+		}
+		return start.AddDate(0, 0, 7)
+	}
 	for _, tx := range txs {
 		if loans[tx.Account] {
 			continue
 		}
 		incoming[bucket(tx.Date)] += moneyIn(tx, external[tx.Id])
-		if _, _, _, amt, ok := budgetLine(tx); ok {
+		_, _, _, amt, ok := budgetLine(tx)
+		if !ok {
+			if tx.Amount >= 0 || tx.Type == "TRANSFER" {
+				continue
+			}
+			amt = -tx.Amount
+		}
+		// A monthly bill is shared across the periods its month covers;
+		// anything else lands whole in its own.
+		if !spreader.monthly(tx) {
 			totals[bucket(tx.Date)] += amt
-		} else if tx.Amount < 0 && tx.Type != "TRANSFER" {
-			totals[bucket(tx.Date)] += -tx.Amount
+			continue
+		}
+		for _, start := range starts {
+			totals[start] += spreader.share(tx, amt, start, periodEnd(start))
 		}
 	}
 

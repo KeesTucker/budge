@@ -305,6 +305,19 @@ func (s *Store) AssignInsight(id, group string) (models.InsightAssignments, erro
 	return assignments, Update[models.InsightAssignments](s.db, assignments)
 }
 
+// GetBudgetSpread returns the payments the budget spreads over a month.
+func (s *Store) GetBudgetSpread() (models.BudgetSpread, error) {
+	spread, err := Get[models.BudgetSpread](s.db, models.BudgetSpread{}.Key())
+	if err != nil {
+		return models.BudgetSpread{}, nil
+	}
+	return spread, nil
+}
+
+func (s *Store) SaveBudgetSpread(spread models.BudgetSpread) error {
+	return Update[models.BudgetSpread](s.db, spread)
+}
+
 /* Notifications */
 
 // notificationRetention caps how many notifications are kept. They are a log of
@@ -422,6 +435,9 @@ func (s *Store) ExportBackup() (models.Backup, error) {
 	if assignments, err := s.GetInsightAssignments(); err == nil && len(assignments.Groups) > 0 {
 		backup.InsightAssignments = assignments.Groups
 	}
+	if spread, err := s.GetBudgetSpread(); err == nil {
+		backup.BudgetMonthly = spread.Monthly
+	}
 	return backup, nil
 }
 
@@ -488,6 +504,12 @@ func (s *Store) ImportBackup(backup models.Backup) error {
 		assignments.Groups[id] = group
 	}
 
+	spread, err := s.GetBudgetSpread()
+	if err != nil {
+		return err
+	}
+	spread.Monthly = unionStrings(spread.Monthly, backup.BudgetMonthly)
+
 	var salary []models.BudgetSalary
 	if backup.BudgetSalary != nil {
 		salary = append(salary, *backup.BudgetSalary)
@@ -511,6 +533,7 @@ func (s *Store) ImportBackup(backup models.Backup) error {
 			putAll(tx, []models.SpendRules{rules}),
 			putAll(tx, []models.InsightExclusions{exclusions}),
 			putAll(tx, []models.InsightAssignments{assignments}),
+			putAll(tx, []models.BudgetSpread{spread}),
 		)
 	})
 }

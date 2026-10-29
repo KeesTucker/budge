@@ -82,8 +82,10 @@
             Actual spend window matches your target frequency — weekly targets use the last 4 weeks, monthly 3 months, yearly 13 months.
             Set a target next to any category and it saves automatically; switching a target's frequency converts the amount for you.
         </p>
-        {{template "budget.setup" .SetupData}}
+        <div id="budget-setup">{{template "budget.setup" .SetupData}}</div>
     </div>
+
+    {{template "budget.spread" .Spread}}
 
     {{/* innerHTML, not outerHTML — an outerHTML swap would replace the element
          carrying hx-trigger and the chart would never refresh again. */}}
@@ -527,4 +529,34 @@
     </tr>
     {{end}}
 </tbody>
+{{end}}
+
+
+{{/* Payments spread over the month they cover, so a monthly bill reads as
+     its weekly cost rather than a blown week and three quiet ones. */}}
+{{define "budget.spread"}}
+<div class="b-card b-card-pad mb-3" id="budget-spread">
+    <h3 class="b-card-title mb-1"><i class="bi bi-calendar-range me-2"></i>Monthly bills</h3>
+    <p class="b-card-sub mb-3">
+        Payments named here are spread evenly over the month from the day they are paid, in the
+        targets above and the chart below, instead of landing all in one week. A name matches the
+        merchant or the description containing it, ignoring capitals and spacing.
+    </p>
+    <form class="d-flex flex-wrap align-items-end gap-2" hx-post="/budget/spread"
+          hx-target="#budget-spread" hx-swap="outerHTML">
+        <div class="flex-grow-1">
+            <label class="b-field-label" for="budget-monthly">Monthly payments</label>
+            <input class="form-control" id="budget-monthly" name="monthly"
+                   placeholder="Mercury, One NZ, Rent"
+                   value="{{ range $i, $name := .Monthly }}{{ if $i }}, {{ end }}{{ $name }}{{ end }}">
+        </div>
+        <button type="submit" class="btn btn-primary">Save</button>
+    </form>
+</div>
+{{end}}
+
+{{/* Saving the list redraws the targets too, since their actuals move. */}}
+{{define "budget.spread.saved"}}
+{{template "budget.spread" .Spread}}
+<div id="budget-setup" hx-swap-oob="innerHTML">{{template "budget.setup" .SetupData}}</div>
 {{end}}

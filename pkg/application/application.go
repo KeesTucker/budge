@@ -264,6 +264,7 @@ func NewApplication(store *database.Store, integrations *integrations.Integratio
 	app.http.GET("/budget/cards", app.BudgetCards)
 	app.http.POST("/budget/savings-goal", app.BudgetSaveSavingsGoal)
 	app.http.POST("/budget/targets", app.BudgetSaveTarget)
+	app.http.POST("/budget/spread", app.BudgetSaveSpread)
 	app.http.POST("/budget/subitems", app.BudgetAddSubItem)
 	app.http.PUT("/budget/items/:id/subitems/:subid", app.BudgetUpdateSubItem)
 	app.http.DELETE("/budget/items/:id/subitems/:subid", app.BudgetDeleteSubItem)

@@ -165,3 +165,18 @@ func TestAssignInsight(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got.Groups, "no group hands it back to the rules")
 }
+
+func TestBudgetSpreadTravelsInBackup(t *testing.T) {
+	store := tempStore(t)
+	require.NoError(t, store.SaveBudgetSpread(models.BudgetSpread{Monthly: []string{"Mercury", "One NZ"}}))
+
+	backup, err := store.ExportBackup()
+	require.NoError(t, err)
+	fresh := tempStore(t)
+	require.NoError(t, fresh.SaveBudgetSpread(models.BudgetSpread{Monthly: []string{"Rent"}}))
+	require.NoError(t, fresh.ImportBackup(backup))
+
+	restored, err := fresh.GetBudgetSpread()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Rent", "Mercury", "One NZ"}, restored.Monthly, "an import adds to what is there")
+}
