@@ -218,3 +218,13 @@ type InsightExclusions struct {
 
 func (e InsightExclusions) Key() []byte    { return []byte("insight_exclusions") }
 func (e InsightExclusions) Bucket() []byte { return buckets.SettingsBucket }
+
+// InsightAssignments are transactions the owner has put in a spend group by
+// hand, keyed by transaction ID, for the one no rule catches: a cash-out spent
+// at the market, or a bank transfer with no reference.
+type InsightAssignments struct {
+	Groups map[string]string `json:"groups"`
+}
+
+func (a InsightAssignments) Key() []byte    { return []byte("insight_assignments") }
+func (a InsightAssignments) Bucket() []byte { return buckets.SettingsBucket }

@@ -251,6 +251,9 @@ func ClassifySpend(tx models.Transaction) (string, bool) {
 // classifySpend is ClassifySpend without the owner's exclusions, for saying
 // which insight an excluded transaction has been taken out of.
 func classifySpend(tx models.Transaction) (string, bool) {
+	if key, ok := assignedGroup(tx.Id); ok {
+		return key, true
+	}
 	if tx.Amount < 0 {
 		for _, group := range spendGroups {
 			if slices.Contains(group.Types, tx.Type) {
@@ -298,6 +301,37 @@ func SetInsightExclusions(exclusions models.InsightExclusions) {
 func InsightExcluded(id string) bool {
 	ids := insightExclusions.Load()
 	return ids != nil && (*ids)[id]
+}
+
+// insightAssignments are the transactions the owner has put in a group by
+// hand, held alongside the exclusions for the same reason.
+var insightAssignments atomic.Pointer[map[string]string]
+
+// SetInsightAssignments replaces the transactions put in a group by hand.
+func SetInsightAssignments(assignments models.InsightAssignments) {
+	groups := make(map[string]string, len(assignments.Groups))
+	for id, key := range assignments.Groups {
+		groups[id] = key
+	}
+	insightAssignments.Store(&groups)
+}
+
+// assignedGroup is the group the owner put a transaction in by hand. An
+// assignment to a group that has since been deleted is ignored, so the
+// transaction falls back to the rules rather than counting towards nothing.
+func assignedGroup(id string) (string, bool) {
+	groups := insightAssignments.Load()
+	if groups == nil || id == "" {
+		return "", false
+	}
+	key, ok := (*groups)[id]
+	if !ok {
+		return "", false
+	}
+	if _, found := SpendGroupByKey(key); !found {
+		return "", false
+	}
+	return key, true
 }
 
 // GroupRule is what a group matches on besides Akahu's category: the owner's

@@ -111,6 +111,7 @@
                                 {{ .Amount | fmtCurrency }}
                             </div>
                             {{ template "transactions.insight" (dict "ID" .Id "Insight" .Insight "Excluded" .Excluded "Layout" "m") }}
+                            {{ template "transactions.group" (dict "ID" .Id "Assigned" .Assigned "Groups" $.groups "Layout" "m") }}
                             {{ template "transactions.memory" (dict "ID" .Id "MemoryID" .MemoryID "MemoryTitle" .MemoryTitle "Layout" "m" "Options" $.memories "Kinds" $.kinds) }}
                         </div>
                     {{ end }}
@@ -153,6 +154,7 @@
                             <td class="b-txmem-cell">
                                 <div class="d-flex align-items-center justify-content-end gap-1">
                                 {{ template "transactions.insight" (dict "ID" .Id "Insight" .Insight "Excluded" .Excluded "Layout" "d") }}
+                                {{ template "transactions.group" (dict "ID" .Id "Assigned" .Assigned "Groups" $.groups "Layout" "d") }}
                                 {{ template "transactions.memory" (dict "ID" .Id "MemoryID" .MemoryID "MemoryTitle" .MemoryTitle "Layout" "d" "Options" $.memories "Kinds" $.kinds) }}
                                 </div>
                             </td>
@@ -341,3 +343,33 @@
 {{ end }}
 
 {{ define "transactions.insight.swap" }}{{ range . }}{{ template "transactions.insight" . }}{{ end }}{{ end }}
+
+
+{{/* Putting a transaction in a spend group by hand, for the one no rule
+     catches. Drawn twice like the memory control, for the same reason. */}}
+{{ define "transactions.group" }}
+<details class="b-txmem" id="txgrp-{{ .Layout }}-{{ .ID }}"{{ if .OOB }} hx-swap-oob="true"{{ end }}>
+    <summary class="b-txmem-toggle{{ if .Assigned }} b-txmem-in{{ end }}"
+             title="{{ if .Assigned }}Put in a category by hand. Change it{{ else }}Add to a category{{ end }}"
+             aria-label="{{ if .Assigned }}Change category{{ else }}Add to a category{{ end }}">
+        <i class="bi {{ if .Assigned }}bi-tag-fill{{ else }}bi-tag{{ end }}"></i>
+    </summary>
+    <form class="b-tl-form b-txmem-form" hx-post="/transactions/{{ .ID }}/group"
+          hx-target="#txgrp-{{ .Layout }}-{{ .ID }}" hx-swap="outerHTML">
+        <input type="hidden" name="layout" value="{{ .Layout }}">
+        <div class="b-txmem-head">Count this in</div>
+        {{ $assigned := .Assigned }}
+        <select class="form-select form-select-sm" name="group" aria-label="Which category">
+            <option value="">Automatic, by the rules</option>
+            {{ range .Groups }}
+                <option value="{{ .Key }}"{{ if eq .Key $assigned }} selected{{ end }}>{{ .Label }}</option>
+            {{ end }}
+        </select>
+        <button class="btn btn-sm btn-primary">Save</button>
+    </form>
+</details>
+{{ end }}
+
+{{/* The insight toggle rides along, since a new category changes what it
+     counts towards. */}}
+{{ define "transactions.group.swap" }}{{ range . }}{{ template "transactions.group" . }}{{ template "transactions.insight" (dict "ID" .ID "Insight" .Insight "Excluded" .Excluded "Layout" .Layout "OOB" true) }}{{ end }}{{ end }}
