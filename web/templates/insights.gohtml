@@ -153,6 +153,13 @@
                         </div>
                     </div>
 
+                    {{ if or .CarriedIn .CarriedOut }}
+                        <p class="b-card-sub mb-2">
+                            {{ if .CarriedIn }}{{ .CarriedIn | fmtCurrency }} paid back in an earlier {{ $.Cadence.Label }} came off this one.{{ end }}
+                            {{ if .CarriedOut }}{{ .CarriedOut | fmtCurrency }} paid back beyond this {{ $.Cadence.Label }}'s spend carries into the next.{{ end }}
+                        </p>
+                    {{ end }}
+
                     {{ if .Rows }}
                         <ul class="b-rank">
                             {{ range .Rows }}

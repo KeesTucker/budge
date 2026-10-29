@@ -554,3 +554,57 @@ func TestBuildInsightPeriods(t *testing.T) {
 	assert.Equal(t, "Pak'nSave", periods[1].Rows[0].Title)
 	assert.InDelta(t, 80, periods[1].Total, 0.001)
 }
+
+func TestBuildSpendBucketsCarriesPaybacksForward(t *testing.T) {
+	groceries, ok := SpendGroupByKey("groceries")
+	require.True(t, ok)
+
+	// now is Tuesday 8 Sep, so this week started Monday 7 Sep.
+	thisWeek := now.AddDate(0, 0, -1)
+	lastWeek := now.AddDate(0, 0, -7)
+	twoAgo := now.AddDate(0, 0, -14)
+	threeAgo := now.AddDate(0, 0, -21)
+
+	transactions := []models.Transaction{
+		spendTransaction("Supermarkets and grocery stores", "Countdown", -100, threeAgo),
+		spendTransaction("Supermarkets and grocery stores", "Countdown", -30, twoAgo),
+		referenced("PAYMENT", "", "groceries", 80),
+		spendTransaction("Supermarkets and grocery stores", "Countdown", -40, lastWeek),
+		spendTransaction("Supermarkets and grocery stores", "Countdown", -60, thisWeek),
+	}
+	transactions[2].Date = twoAgo
+
+	buckets := BuildSpendBuckets(transactions, groceries, CadenceWeekly, 4, now)
+	require.Len(t, buckets, 4)
+
+	assert.InDelta(t, 100, buckets[0].Total, 0.001)
+	assert.InDelta(t, 0, buckets[1].Total, 0.001, "paid back more than was spent: zero, not negative")
+	assert.InDelta(t, 50, buckets[1].CarriedOut, 0.001)
+	assert.InDelta(t, 0, buckets[2].Total, 0.001, "the rest comes off the next week")
+	assert.InDelta(t, 40, buckets[2].CarriedIn, 0.001)
+	assert.InDelta(t, 10, buckets[2].CarriedOut, 0.001)
+	assert.InDelta(t, 50, buckets[3].Total, 0.001, "and what is left after that off the one after")
+	assert.InDelta(t, 0, buckets[3].CarriedOut, 0.001)
+
+	t.Run("credit from before the window still carries into it", func(t *testing.T) {
+		window := BuildSpendBuckets(transactions, groceries, CadenceWeekly, 2, now)
+		require.Len(t, window, 2)
+		assert.InDelta(t, 0, window[0].Total, 0.001)
+		assert.InDelta(t, 40, window[0].CarriedIn, 0.001)
+		assert.InDelta(t, 50, window[1].Total, 0.001)
+	})
+
+	t.Run("rolling windows carry the same way", func(t *testing.T) {
+		summary := BuildRollingSummary(transactions, groceries, 7, 2, now)
+		for _, bucket := range summary.Buckets {
+			assert.GreaterOrEqual(t, bucket.Total, 0.0)
+		}
+	})
+}
+
+func TestCarryCreditIgnoresFloatNoise(t *testing.T) {
+	buckets := []SpendBucket{{Total: 0.1 + 0.2 - 0.3 - 1e-12}, {Total: 5}}
+	carryCredit(buckets, 0)
+	assert.Zero(t, buckets[0].CarriedOut)
+	assert.InDelta(t, 5, buckets[1].Total, 0.001)
+}
