@@ -421,12 +421,12 @@ func nonEmptyBand(data []float64) ([]float64, bool) {
 	return nil, false
 }
 
-// transactionExclude is the category choice that leaves a transaction out
-// of the insights altogether.
+// transactionExclude is the "No category" choice, which leaves a transaction
+// out of the insights whatever the rules say.
 const transactionExclude = "none"
 
 // TransactionSetCategory puts a transaction in a spend group by hand, hands
-// it back to the rules, or leaves it out of the insights, and answers with
+// it back to the rules, or takes its category away, and answers with
 // its control in both layouts, like the memory control.
 func (app *Application) TransactionSetCategory(c echo.Context) error {
 	tx, err := app.store.GetTransaction(c.Param("id"))
@@ -461,7 +461,7 @@ func (app *Application) TransactionSetCategory(c echo.Context) error {
 	row := BuildTransactionRow(tx)
 	switch {
 	case choice == transactionExclude:
-		app.Toast(c, "Saved", "Not counted in any insight.")
+		app.Toast(c, "Saved", "No category, so not counted in any insight.")
 	case choice != "":
 		app.Toast(c, "Saved", "Counted in "+group.Label+".")
 	case row.Automatic != "":

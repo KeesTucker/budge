@@ -714,8 +714,8 @@ func TestRenderTransactionCategorySwap(t *testing.T) {
 	assert.Contains(t, page, "bi-tag-fill")
 
 	excluded := renderTemplate(t, "transactions.category", control("m", false, map[string]interface{}{"Excluded": true}))
-	assert.Contains(t, excluded, `<option value="none" selected>`, "one control also leaves a transaction out")
-	assert.Contains(t, excluded, "bi-slash-circle")
+	assert.Contains(t, excluded, `<option value="none" selected>No category</option>`, "one control also takes the category away")
+	assert.Contains(t, excluded, "No category, chosen by you")
 
 	automatic := renderTemplate(t, "transactions.category", control("m", false, nil))
 	assert.Contains(t, automatic, `<option value="" selected>Automatic (Groceries)</option>`)

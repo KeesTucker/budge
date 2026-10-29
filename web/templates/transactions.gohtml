@@ -323,17 +323,18 @@
 
 {{ define "transactions.memory.swap" }}{{ range . }}{{ template "transactions.memory" . }}{{ end }}{{ end }}
 
-{{/* Which insight a transaction counts towards: whatever the rules say, a
+{{/* Which category a transaction counts towards: whatever the rules say, a
      group chosen by hand, or none at all, for the odd one a rule gets wrong.
+     Having no category is what keeps it out of the insights.
      Drawn twice like the memory control, for the same reason. */}}
 {{ define "transactions.category" }}
 <details class="b-txmem" id="txcat-{{ .Layout }}-{{ .ID }}"{{ if .OOB }} hx-swap-oob="true"{{ end }}>
     {{ $state := "" }}
     {{ if .Excluded }}{{ $state = "none" }}{{ else if .Assigned }}{{ $state = .Assigned }}{{ end }}
     <summary class="b-txmem-toggle{{ if or .Assigned .Excluded }} b-txmem-in{{ end }}"
-             title="{{ if .Excluded }}Not counted in any insight{{ else if .Assigned }}Counted in {{ .Insight }}, chosen by you{{ else if .Insight }}Counted in {{ .Insight }} automatically{{ else }}Add to a category{{ end }}"
-             aria-label="{{ if .Excluded }}Not counted in any insight. Change{{ else if .Insight }}Counted in {{ .Insight }}. Change category{{ else }}Add to a category{{ end }}">
-        <i class="bi {{ if .Excluded }}bi-slash-circle{{ else if .Assigned }}bi-tag-fill{{ else if .Insight }}bi-pie-chart-fill{{ else }}bi-tag{{ end }}"></i>
+             title="{{ if .Excluded }}No category, chosen by you{{ else if .Assigned }}Counted in {{ .Insight }}, chosen by you{{ else if .Insight }}Counted in {{ .Insight }} automatically{{ else }}Add to a category{{ end }}"
+             aria-label="{{ if .Excluded }}No category. Change category{{ else if .Insight }}Counted in {{ .Insight }}. Change category{{ else }}Add to a category{{ end }}">
+        <i class="bi {{ if .Excluded }}bi-tag{{ else if .Assigned }}bi-tag-fill{{ else if .Insight }}bi-pie-chart-fill{{ else }}bi-tag{{ end }}"></i>
     </summary>
     <form class="b-tl-form b-txmem-form" hx-post="/transactions/{{ .ID }}/category"
           hx-target="#txcat-{{ .Layout }}-{{ .ID }}" hx-swap="outerHTML">
@@ -344,7 +345,7 @@
             {{ range .Groups }}
                 <option value="{{ .Key }}"{{ if eq .Key $state }} selected{{ end }}>{{ .Label }}</option>
             {{ end }}
-            <option value="none"{{ if eq $state "none" }} selected{{ end }}>Don't count in insights</option>
+            <option value="none"{{ if eq $state "none" }} selected{{ end }}>No category</option>
         </select>
         <button class="btn btn-sm btn-primary">Save</button>
     </form>
