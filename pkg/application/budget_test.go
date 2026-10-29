@@ -546,6 +546,7 @@ func TestBudgetTemplatesRender(t *testing.T) {
 			map[string]any{
 				"Salary":    models.BudgetSalary{Salary: 100_000, SalaryFrequency: "yearly", IncludePAYE: true, KiwiSaverRate: 3},
 				"SetupData": setup,
+				"Spread":    BudgetSpreadView{Spread: models.BudgetSpread{Monthly: []string{"Mercury", "One NZ"}, Ignore: []string{"Warehouse"}}, Detected: []string{"Spotify"}},
 			},
 		},
 		{
@@ -564,6 +565,10 @@ func TestBudgetTemplatesRender(t *testing.T) {
 		{"performance without data", "budget.performance", BudgetPerformanceData{}},
 		{"setup with data", "budget.setup", setup},
 		{"setup without data", "budget.setup", CategorySetupData{HasData: false}},
+		{"monthly bills saved", "budget.spread.saved", map[string]any{
+			"Spread":    BudgetSpreadView{Spread: models.BudgetSpread{Monthly: []string{"Mercury"}}},
+			"SetupData": setup,
+		}},
 	}
 
 	for _, test := range tests {

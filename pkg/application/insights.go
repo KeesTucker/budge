@@ -76,6 +76,11 @@ type InsightPeriod struct {
 	Start time.Time
 	Total float64
 	Rows  []TransactionRow
+
+	// CarriedIn and CarriedOut are paybacks moved between periods, so the
+	// total can be squared with the rows listed under it.
+	CarriedIn  float64
+	CarriedOut float64
 }
 
 // insightPeriods is how many periods the breakdown lists: the one in progress
@@ -97,7 +102,13 @@ func BuildInsightPeriods(transactions []models.Transaction, summary SpendSummary
 		if bucket.Partial {
 			label = "This " + summary.Cadence.Label()
 		}
-		period := InsightPeriod{Label: label, Start: bucket.Start, Total: bucket.Total}
+		period := InsightPeriod{
+			Label:      label,
+			Start:      bucket.Start,
+			Total:      bucket.Total,
+			CarriedIn:  bucket.CarriedIn,
+			CarriedOut: bucket.CarriedOut,
+		}
 		for _, tx := range transactions {
 			key, ok := ClassifySpend(tx)
 			if !ok || key != summary.Group.Key {

@@ -82,8 +82,10 @@
             Actual spend window matches your target frequency — weekly targets use the last 4 weeks, monthly 3 months, yearly 13 months.
             Set a target next to any category and it saves automatically; switching a target's frequency converts the amount for you.
         </p>
-        {{template "budget.setup" .SetupData}}
+        <div id="budget-setup">{{template "budget.setup" .SetupData}}</div>
     </div>
+
+    {{template "budget.spread" .Spread}}
 
     {{/* innerHTML, not outerHTML — an outerHTML swap would replace the element
          carrying hx-trigger and the chart would never refresh again. */}}
@@ -527,4 +529,50 @@
     </tr>
     {{end}}
 </tbody>
+{{end}}
+
+
+{{/* Payments spread over the month they cover, so a monthly bill reads as
+     its weekly cost rather than a blown week and three quiet ones. */}}
+{{define "budget.spread"}}
+<div class="b-card b-card-pad mb-3" id="budget-spread">
+    <h3 class="b-card-title mb-1"><i class="bi bi-calendar-range me-2"></i>Monthly bills</h3>
+    <p class="b-card-sub mb-3">
+        Monthly payments are spread evenly over the month from the day they are paid, in the
+        targets above and the chart below, instead of landing all in one week. Payments to the
+        same payee about a month apart, three or more in a row, are found by themselves; name any
+        others here. A name matches the merchant or the description containing it, ignoring
+        capitals and spacing.
+    </p>
+    {{ if .Detected }}
+        <div class="mb-3">
+            <div class="b-field-label">Found automatically</div>
+            {{ range .Detected }}<span class="badge-category me-1">{{ . }}</span>{{ end }}
+        </div>
+    {{ end }}
+    <form class="row g-2 align-items-end" hx-post="/budget/spread"
+          hx-target="#budget-spread" hx-swap="outerHTML">
+        <div class="col-12 col-md">
+            <label class="b-field-label" for="budget-monthly">Also monthly</label>
+            <input class="form-control" id="budget-monthly" name="monthly"
+                   placeholder="Mercury, One NZ, Rent"
+                   value="{{ range $i, $name := .Spread.Monthly }}{{ if $i }}, {{ end }}{{ $name }}{{ end }}">
+        </div>
+        <div class="col-12 col-md">
+            <label class="b-field-label" for="budget-not-monthly">Never spread</label>
+            <input class="form-control" id="budget-not-monthly" name="ignore"
+                   placeholder="Anything found above that is not a bill"
+                   value="{{ range $i, $name := .Spread.Ignore }}{{ if $i }}, {{ end }}{{ $name }}{{ end }}">
+        </div>
+        <div class="col-12 col-md-auto">
+            <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+    </form>
+</div>
+{{end}}
+
+{{/* Saving the list redraws the targets too, since their actuals move. */}}
+{{define "budget.spread.saved"}}
+{{template "budget.spread" .Spread}}
+<div id="budget-setup" hx-swap-oob="innerHTML">{{template "budget.setup" .SetupData}}</div>
 {{end}}

@@ -235,8 +235,7 @@ func NewApplication(store *database.Store, integrations *integrations.Integratio
 
 	// Adding a transaction to a memory from the transactions list.
 	app.http.POST("/transactions/:id/memory", app.TransactionAddToMemory)
-	app.http.POST("/transactions/:id/insight", app.TransactionToggleInsight)
-	app.http.POST("/transactions/:id/group", app.TransactionAssignGroup)
+	app.http.POST("/transactions/:id/category", app.TransactionSetCategory)
 
 	// Portfolio: everything owned and owed. Assets tracked by hand sit under it
 	// alongside the synced accounts, so their URLs sit under it too.
@@ -264,6 +263,7 @@ func NewApplication(store *database.Store, integrations *integrations.Integratio
 	app.http.GET("/budget/cards", app.BudgetCards)
 	app.http.POST("/budget/savings-goal", app.BudgetSaveSavingsGoal)
 	app.http.POST("/budget/targets", app.BudgetSaveTarget)
+	app.http.POST("/budget/spread", app.BudgetSaveSpread)
 	app.http.POST("/budget/subitems", app.BudgetAddSubItem)
 	app.http.PUT("/budget/items/:id/subitems/:subid", app.BudgetUpdateSubItem)
 	app.http.DELETE("/budget/items/:id/subitems/:subid", app.BudgetDeleteSubItem)

@@ -264,17 +264,15 @@ func (s *Store) GetInsightExclusions() (models.InsightExclusions, error) {
 	return exclusions, nil
 }
 
-// ToggleInsightExclusion leaves a transaction out of the insights, or puts it
-// back if it was already left out, and returns the exclusions as they now
-// stand.
-func (s *Store) ToggleInsightExclusion(id string) (models.InsightExclusions, error) {
+// SetInsightExclusion leaves a transaction out of the insights, or puts it
+// back, and returns the exclusions as they now stand.
+func (s *Store) SetInsightExclusion(id string, excluded bool) (models.InsightExclusions, error) {
 	exclusions, err := s.GetInsightExclusions()
 	if err != nil {
 		return exclusions, err
 	}
-	if slices.Contains(exclusions.TransactionIDs, id) {
-		exclusions.TransactionIDs = slices.DeleteFunc(exclusions.TransactionIDs, func(t string) bool { return t == id })
-	} else {
+	exclusions.TransactionIDs = slices.DeleteFunc(exclusions.TransactionIDs, func(t string) bool { return t == id })
+	if excluded {
 		exclusions.TransactionIDs = append(exclusions.TransactionIDs, id)
 	}
 	return exclusions, Update[models.InsightExclusions](s.db, exclusions)
@@ -303,6 +301,19 @@ func (s *Store) AssignInsight(id, group string) (models.InsightAssignments, erro
 		assignments.Groups[id] = group
 	}
 	return assignments, Update[models.InsightAssignments](s.db, assignments)
+}
+
+// GetBudgetSpread returns the payments the budget spreads over a month.
+func (s *Store) GetBudgetSpread() (models.BudgetSpread, error) {
+	spread, err := Get[models.BudgetSpread](s.db, models.BudgetSpread{}.Key())
+	if err != nil {
+		return models.BudgetSpread{}, nil
+	}
+	return spread, nil
+}
+
+func (s *Store) SaveBudgetSpread(spread models.BudgetSpread) error {
+	return Update[models.BudgetSpread](s.db, spread)
 }
 
 /* Notifications */
@@ -422,6 +433,10 @@ func (s *Store) ExportBackup() (models.Backup, error) {
 	if assignments, err := s.GetInsightAssignments(); err == nil && len(assignments.Groups) > 0 {
 		backup.InsightAssignments = assignments.Groups
 	}
+	if spread, err := s.GetBudgetSpread(); err == nil {
+		backup.BudgetMonthly = spread.Monthly
+		backup.BudgetNotMonthly = spread.Ignore
+	}
 	return backup, nil
 }
 
@@ -488,6 +503,13 @@ func (s *Store) ImportBackup(backup models.Backup) error {
 		assignments.Groups[id] = group
 	}
 
+	spread, err := s.GetBudgetSpread()
+	if err != nil {
+		return err
+	}
+	spread.Monthly = unionStrings(spread.Monthly, backup.BudgetMonthly)
+	spread.Ignore = unionStrings(spread.Ignore, backup.BudgetNotMonthly)
+
 	var salary []models.BudgetSalary
 	if backup.BudgetSalary != nil {
 		salary = append(salary, *backup.BudgetSalary)
@@ -511,6 +533,7 @@ func (s *Store) ImportBackup(backup models.Backup) error {
 			putAll(tx, []models.SpendRules{rules}),
 			putAll(tx, []models.InsightExclusions{exclusions}),
 			putAll(tx, []models.InsightAssignments{assignments}),
+			putAll(tx, []models.BudgetSpread{spread}),
 		)
 	})
 }

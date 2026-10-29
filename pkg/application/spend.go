@@ -254,6 +254,12 @@ func classifySpend(tx models.Transaction) (string, bool) {
 	if key, ok := assignedGroup(tx.Id); ok {
 		return key, true
 	}
+	return ruleGroup(tx)
+}
+
+// ruleGroup is the group the rules alone put a transaction in, ignoring any
+// group the owner chose by hand.
+func ruleGroup(tx models.Transaction) (string, bool) {
 	if tx.Amount < 0 {
 		for _, group := range spendGroups {
 			if slices.Contains(group.Types, tx.Type) {
@@ -454,6 +460,12 @@ type SpendBucket struct {
 	// accruing. Comparing a part week against a whole one understates it, so
 	// the UI labels this bucket rather than quietly charting it alongside.
 	Partial bool
+
+	// CarriedIn is money paid back in an earlier period that was taken off
+	// this one, and CarriedOut is what was left over after this one reached
+	// zero, taken off the next. See carryCredit.
+	CarriedIn  float64
+	CarriedOut float64
 }
 
 // SpendBar is a bucket scaled for the CSS bar charts on the dashboard tiles.
@@ -630,7 +642,83 @@ func BuildSpendBuckets(transactions []models.Transaction, group SpendGroup, cade
 		}
 	}
 
+	prior := priorCredit(transactions, group, location, first, func(t time.Time) time.Time {
+		return spendPeriodAdd(t, cadence, -1)
+	})
+	carryCredit(buckets, prior)
+
 	return buckets
+}
+
+// carryCredit stops a period going below zero. Being paid back more than was
+// spent, a partner transferring their half of last week's shop on Monday,
+// takes the period down to zero and the rest comes off the periods after it,
+// rather than charting a negative week and an inflated one beside it.
+// Credit left over after the last bucket is dropped: it belongs to a period
+// that has not happened yet.
+func carryCredit(buckets []SpendBucket, carry float64) float64 {
+	for i := range buckets {
+		buckets[i].CarriedIn = math.Min(carry, math.Max(buckets[i].Total, 0))
+		buckets[i].Total -= carry
+		carry = 0
+		// Under half a cent is float noise from netting cents, not credit.
+		if buckets[i].Total < -0.005 {
+			carry = -buckets[i].Total
+		}
+		if buckets[i].Total < 0 {
+			buckets[i].Total = 0
+		}
+		buckets[i].CarriedOut = carry
+	}
+	return carry
+}
+
+// maxCarryPeriods bounds how far back priorCredit walks, so a stray ancient
+// transaction cannot make it step through decades of empty weeks.
+const maxCarryPeriods = 520
+
+// priorCredit is the credit still being carried when the window starting at
+// first opens, worked out from whatever history before it was loaded. prev
+// steps a period start back by one period.
+func priorCredit(transactions []models.Transaction, group SpendGroup, location *time.Location, first time.Time, prev func(time.Time) time.Time) float64 {
+	var before []models.Transaction
+	earliest := first
+	for _, tx := range transactions {
+		key, ok := ClassifySpend(tx)
+		if !ok || key != group.Key {
+			continue
+		}
+		when := tx.Date.In(location)
+		if !when.Before(first) {
+			continue
+		}
+		before = append(before, tx)
+		if when.Before(earliest) {
+			earliest = when
+		}
+	}
+	if len(before) == 0 {
+		return 0
+	}
+
+	// Period starts, newest first, back to the one holding the earliest.
+	var starts []time.Time
+	for start := first; start.After(earliest) && len(starts) < maxCarryPeriods; {
+		start = prev(start)
+		starts = append(starts, start)
+	}
+	slices.Reverse(starts)
+
+	buckets := make([]SpendBucket, len(starts))
+	for _, tx := range before {
+		when := tx.Date.In(location)
+		// The last start at or before the transaction is its period.
+		i := sort.Search(len(starts), func(i int) bool { return starts[i].After(when) }) - 1
+		if i >= 0 {
+			buckets[i].Total += -tx.Amount
+		}
+	}
+	return carryCredit(buckets, 0)
 }
 
 // BuildSpendSummary folds a group's transactions into the comparison the
@@ -742,8 +830,9 @@ func (s SpendSummary) Bars() []SpendBar {
 	bars := make([]SpendBar, len(s.Buckets))
 	for i, bucket := range s.Buckets {
 		bars[i] = SpendBar{SpendBucket: bucket}
-		// A period paid back more than was spent nets below zero, and draws
-		// as an empty bar rather than one hanging below the axis.
+		// Paybacks carry forward rather than taking a period below zero, but
+		// a negative total still draws as an empty bar rather than one
+		// hanging below the axis.
 		if max > 0 && bucket.Total > 0 {
 			bars[i].Pct = bucket.Total / max * 100
 		}
@@ -878,6 +967,11 @@ func BuildRollingSummary(transactions []models.Transaction, group SpendGroup, da
 			}
 		}
 	}
+
+	prior := priorCredit(transactions, group, location, buckets[0].Start, func(t time.Time) time.Time {
+		return t.AddDate(0, 0, -days)
+	})
+	carryCredit(buckets, prior)
 
 	summary.Buckets = buckets
 	summary.Current = buckets[periods-1].Total

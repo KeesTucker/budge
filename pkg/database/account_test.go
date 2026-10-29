@@ -128,11 +128,13 @@ func TestBackupKeepsSpendRules(t *testing.T) {
 	assert.Len(t, again.Custom, 1, "importing twice does not list a group twice")
 }
 
-func TestToggleInsightExclusion(t *testing.T) {
+func TestSetInsightExclusion(t *testing.T) {
 	store := tempStore(t)
-	got, err := store.ToggleInsightExclusion("trans_a")
+	_, err := store.SetInsightExclusion("trans_a", true)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"trans_a"}, got.TransactionIDs)
+	got, err := store.SetInsightExclusion("trans_a", true)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"trans_a"}, got.TransactionIDs, "excluding twice lists it once")
 
 	backup, err := store.ExportBackup()
 	require.NoError(t, err)
@@ -142,9 +144,9 @@ func TestToggleInsightExclusion(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"trans_a"}, restored.TransactionIDs, "exclusions travel in a backup")
 
-	got, err = store.ToggleInsightExclusion("trans_a")
+	got, err = store.SetInsightExclusion("trans_a", false)
 	require.NoError(t, err)
-	assert.Empty(t, got.TransactionIDs, "toggling again puts it back")
+	assert.Empty(t, got.TransactionIDs, "and can be put back")
 }
 
 func TestAssignInsight(t *testing.T) {
@@ -164,4 +166,19 @@ func TestAssignInsight(t *testing.T) {
 	got, err = store.AssignInsight("trans_a", "")
 	require.NoError(t, err)
 	assert.Empty(t, got.Groups, "no group hands it back to the rules")
+}
+
+func TestBudgetSpreadTravelsInBackup(t *testing.T) {
+	store := tempStore(t)
+	require.NoError(t, store.SaveBudgetSpread(models.BudgetSpread{Monthly: []string{"Mercury", "One NZ"}}))
+
+	backup, err := store.ExportBackup()
+	require.NoError(t, err)
+	fresh := tempStore(t)
+	require.NoError(t, fresh.SaveBudgetSpread(models.BudgetSpread{Monthly: []string{"Rent"}}))
+	require.NoError(t, fresh.ImportBackup(backup))
+
+	restored, err := fresh.GetBudgetSpread()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Rent", "Mercury", "One NZ"}, restored.Monthly, "an import adds to what is there")
 }

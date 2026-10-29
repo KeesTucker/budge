@@ -40,6 +40,13 @@ type Backup struct {
 	// InsightAssignments are transactions put in a spend group by hand, by
 	// Akahu's own IDs for the same reason.
 	InsightAssignments map[string]string `json:"insight_assignments,omitempty"`
+
+	// BudgetMonthly are the payments the budget spreads over a month.
+	BudgetMonthly []string `json:"budget_monthly,omitempty"`
+
+	// BudgetNotMonthly are the payments the budget never spreads, however
+	// regular they look.
+	BudgetNotMonthly []string `json:"budget_not_monthly,omitempty"`
 }
 
 // BackupCounts says what a backup holds, for telling the owner what an import
