@@ -43,6 +43,10 @@ type Backup struct {
 
 	// BudgetMonthly are the payments the budget spreads over a month.
 	BudgetMonthly []string `json:"budget_monthly,omitempty"`
+
+	// BudgetNotMonthly are the payments the budget never spreads, however
+	// regular they look.
+	BudgetNotMonthly []string `json:"budget_not_monthly,omitempty"`
 }
 
 // BackupCounts says what a backup holds, for telling the owner what an import

@@ -167,7 +167,7 @@ func (app *Application) Budget(c echo.Context) error {
 		app.Toast(c, "Error", "Could not load category data.")
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	spread, err := app.store.GetBudgetSpread()
+	spread, err := app.budgetSpreadView()
 	if err != nil {
 		app.Toast(c, "Error", "Could not load the monthly bills.")
 		return c.NoContent(http.StatusInternalServerError)

@@ -435,6 +435,7 @@ func (s *Store) ExportBackup() (models.Backup, error) {
 	}
 	if spread, err := s.GetBudgetSpread(); err == nil {
 		backup.BudgetMonthly = spread.Monthly
+		backup.BudgetNotMonthly = spread.Ignore
 	}
 	return backup, nil
 }
@@ -507,6 +508,7 @@ func (s *Store) ImportBackup(backup models.Backup) error {
 		return err
 	}
 	spread.Monthly = unionStrings(spread.Monthly, backup.BudgetMonthly)
+	spread.Ignore = unionStrings(spread.Ignore, backup.BudgetNotMonthly)
 
 	var salary []models.BudgetSalary
 	if backup.BudgetSalary != nil {

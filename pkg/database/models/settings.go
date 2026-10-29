@@ -232,9 +232,11 @@ func (a InsightAssignments) Bucket() []byte { return buckets.SettingsBucket }
 // BudgetSpread names the payments the budget spreads over the month they
 // cover rather than counting on the day they leave, so a monthly bill does
 // not blow out the week it lands in. Each entry matches a merchant name or a
-// description containing it.
+// description containing it. Payments that recur monthly are found without
+// being named; Ignore names the ones that only look monthly.
 type BudgetSpread struct {
 	Monthly []string `json:"monthly"`
+	Ignore  []string `json:"ignore,omitempty"`
 }
 
 func (s BudgetSpread) Key() []byte    { return []byte("budget_spread") }
