@@ -532,3 +532,25 @@ func TestSpendSummaryBarsHeadline(t *testing.T) {
 		assert.Equal(t, 1, count)
 	})
 }
+
+func TestBuildInsightPeriods(t *testing.T) {
+	groceries, ok := SpendGroupByKey("groceries")
+	require.True(t, ok)
+	transactions := []models.Transaction{
+		spendTransaction("Supermarkets and grocery stores", "Countdown", -50, now.AddDate(0, 0, -1)),
+		spendTransaction("Supermarkets and grocery stores", "Pak'nSave", -80, now.AddDate(0, 0, -3)),
+		spendTransaction("Supermarkets and grocery stores", "New World", -20, now.AddDate(0, 0, -20)),
+		spendTransaction("Fuel stations", "Z", -90, now.AddDate(0, 0, -1)),
+	}
+	summary := BuildSpendSummary(transactions, groceries, CadenceWeekly, now)
+
+	periods := BuildInsightPeriods(transactions, summary, time.UTC)
+	require.Len(t, periods, 2)
+	assert.Equal(t, "This week", periods[0].Label)
+	require.Len(t, periods[0].Rows, 1)
+	assert.Equal(t, "Countdown", periods[0].Rows[0].Title)
+	assert.Equal(t, "Last week", periods[1].Label)
+	require.Len(t, periods[1].Rows, 1, "older weeks and other groups are left out")
+	assert.Equal(t, "Pak'nSave", periods[1].Rows[0].Title)
+	assert.InDelta(t, 80, periods[1].Total, 0.001)
+}

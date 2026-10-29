@@ -203,3 +203,23 @@ func TestClassifySpendDualFuelRetailer(t *testing.T) {
 	assert.True(t, ok, "a retailer selling both is still power")
 	assert.Equal(t, "power", key)
 }
+
+func TestClassifySpendHonoursAssignments(t *testing.T) {
+	tx := referenced("TRANSFER", "", "", 40)
+	tx.Id = "trans_market"
+	_, ok := ClassifySpend(tx)
+	require.False(t, ok, "no rule catches a transfer with no reference")
+
+	SetInsightAssignments(models.InsightAssignments{Groups: map[string]string{"trans_market": "groceries", "trans_gone": "custom-deleted"}})
+	t.Cleanup(func() { insightAssignments.Store(nil) })
+
+	key, ok := ClassifySpend(tx)
+	assert.True(t, ok)
+	assert.Equal(t, "groceries", key, "a transaction put in a group by hand counts there")
+	assert.Equal(t, "groceries", BuildTransactionRow(tx).Assigned)
+
+	gone := referenced("TRANSFER", "", "", 40)
+	gone.Id = "trans_gone"
+	_, ok = ClassifySpend(gone)
+	assert.False(t, ok, "a group that no longer exists is ignored")
+}

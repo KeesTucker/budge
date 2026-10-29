@@ -118,6 +118,11 @@ func NewApplication(store *database.Store, integrations *integrations.Integratio
 		return nil, err
 	}
 	SetInsightExclusions(exclusions)
+	assignments, err := store.GetInsightAssignments()
+	if err != nil {
+		return nil, err
+	}
+	SetInsightAssignments(assignments)
 	if err := app.refreshPayCycle(); err != nil {
 		return nil, err
 	}
@@ -231,6 +236,7 @@ func NewApplication(store *database.Store, integrations *integrations.Integratio
 	// Adding a transaction to a memory from the transactions list.
 	app.http.POST("/transactions/:id/memory", app.TransactionAddToMemory)
 	app.http.POST("/transactions/:id/insight", app.TransactionToggleInsight)
+	app.http.POST("/transactions/:id/group", app.TransactionAssignGroup)
 
 	// Portfolio: everything owned and owed. Assets tracked by hand sit under it
 	// alongside the synced accounts, so their URLs sit under it too.

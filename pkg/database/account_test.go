@@ -146,3 +146,22 @@ func TestToggleInsightExclusion(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got.TransactionIDs, "toggling again puts it back")
 }
+
+func TestAssignInsight(t *testing.T) {
+	store := tempStore(t)
+	got, err := store.AssignInsight("trans_a", "groceries")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"trans_a": "groceries"}, got.Groups)
+
+	backup, err := store.ExportBackup()
+	require.NoError(t, err)
+	fresh := tempStore(t)
+	require.NoError(t, fresh.ImportBackup(backup))
+	restored, err := fresh.GetInsightAssignments()
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"trans_a": "groceries"}, restored.Groups, "assignments travel in a backup")
+
+	got, err = store.AssignInsight("trans_a", "")
+	require.NoError(t, err)
+	assert.Empty(t, got.Groups, "no group hands it back to the rules")
+}

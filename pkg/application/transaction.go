@@ -35,6 +35,10 @@ type TransactionRow struct {
 	// for a transaction no insight would count.
 	Insight  string
 	Excluded bool
+
+	// Assigned is the group the owner put the transaction in by hand, empty
+	// when the rules decide.
+	Assigned string
 }
 
 // TransactionDay groups a day's transactions under a single heading, which is
@@ -68,6 +72,7 @@ func BuildTransactionRow(tx models.Transaction) TransactionRow {
 		Insight:     insightOf(tx),
 		Excluded:    InsightExcluded(tx.Id),
 	}
+	row.Assigned, _ = assignedGroup(tx.Id)
 	if row.Title == "" {
 		row.Title = tx.Description
 	}
@@ -205,6 +210,7 @@ func (app *Application) Transactions(c echo.Context) error {
 		"series":    series,
 		"days":      days,
 		"memories":  memories,
+		"groups":    SpendGroups(),
 		"kinds":     models.MemoryKinds,
 		"search":    search,
 		"account":   account,
@@ -440,4 +446,61 @@ func (app *Application) TransactionToggleInsight(c echo.Context) error {
 		})
 	}
 	return c.Render(http.StatusOK, "transactions.insight.swap", controls)
+}
+
+// TransactionAssignGroup puts a transaction in a spend group by hand, or hands
+// it back to the rules, and answers with its controls in both layouts.
+func (app *Application) TransactionAssignGroup(c echo.Context) error {
+	tx, err := app.store.GetTransaction(c.Param("id"))
+	if err != nil || tx.Id == "" {
+		return echo.NewHTTPError(http.StatusNotFound, "No such transaction.")
+	}
+
+	key := c.FormValue("group")
+	group, found := SpendGroupByKey(key)
+	if key != "" && !found {
+		return echo.NewHTTPError(http.StatusBadRequest, "No such category.")
+	}
+
+	assignments, err := app.store.AssignInsight(tx.Id, key)
+	if err != nil {
+		app.Toast(c, "Error", "Could not change the category.")
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	SetInsightAssignments(assignments)
+
+	// Putting a transaction in a group by hand says it should count there,
+	// so one taken out of the insights earlier is put back.
+	if key != "" && InsightExcluded(tx.Id) {
+		exclusions, err := app.store.ToggleInsightExclusion(tx.Id)
+		if err != nil {
+			app.Toast(c, "Error", "Could not change the insights.")
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		SetInsightExclusions(exclusions)
+	}
+
+	row := BuildTransactionRow(tx)
+	switch {
+	case key != "":
+		app.Toast(c, "Saved", "Counted in "+group.Label+".")
+	case row.Insight != "":
+		app.Toast(c, "Saved", "Back to the rules, which count it in "+row.Insight+".")
+	default:
+		app.Toast(c, "Saved", "Back to the rules, which count it nowhere.")
+	}
+
+	layout := c.FormValue("layout")
+	if !slices.Contains(transactionMemoryLayouts, layout) {
+		layout = transactionMemoryLayouts[0]
+	}
+	groups := SpendGroups()
+	controls := make([]map[string]interface{}, 0, len(transactionMemoryLayouts))
+	for _, each := range transactionMemoryLayouts {
+		controls = append(controls, map[string]interface{}{
+			"ID": tx.Id, "Insight": row.Insight, "Excluded": row.Excluded, "Assigned": row.Assigned,
+			"Groups": groups, "Layout": each, "OOB": each != layout,
+		})
+	}
+	return c.Render(http.StatusOK, "transactions.group.swap", controls)
 }

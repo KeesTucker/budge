@@ -36,6 +36,10 @@ type Backup struct {
 	// InsightExclusions are transactions left out of the insights, by Akahu's
 	// own IDs, so they reattach when the transactions sync back.
 	InsightExclusions []string `json:"insight_exclusions,omitempty"`
+
+	// InsightAssignments are transactions put in a spend group by hand, by
+	// Akahu's own IDs for the same reason.
+	InsightAssignments map[string]string `json:"insight_assignments,omitempty"`
 }
 
 // BackupCounts says what a backup holds, for telling the owner what an import

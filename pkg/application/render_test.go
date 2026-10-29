@@ -103,6 +103,7 @@ func TestRenderTransactions(t *testing.T) {
 		return renderTemplate(t, "transactions", map[string]interface{}{
 			"accounts":  []models.Account{account("everyday", "Everyday", "Kiwibank", "CHECKING", 1100)},
 			"days":      GroupTransactionsByDay(page, time.UTC),
+			"groups":    SpendGroups(),
 			"search":    "",
 			"account":   "",
 			"took":      3 * time.Millisecond,
@@ -120,6 +121,11 @@ func TestRenderTransactions(t *testing.T) {
 	t.Run("groups transactions under their day", func(t *testing.T) {
 		assert.Contains(t, page, "Mon 7 Sep 2026")
 		assert.Contains(t, page, "Sun 6 Sep 2026")
+	})
+
+	t.Run("offers to put each transaction in a category by hand", func(t *testing.T) {
+		assert.Contains(t, page, `hx-post="/transactions/`+transactions[0].Id+`/group"`)
+		assert.Contains(t, page, `<option value="groceries">Groceries</option>`)
 	})
 
 	t.Run("renders a card list for phones and a table for desktop", func(t *testing.T) {
@@ -331,8 +337,14 @@ func TestRenderInsights(t *testing.T) {
 		Cadence:     CadenceWeekly,
 		Summary:     summary,
 		Merchants:   BuildSpendMerchants(transactions, groceries, start, end, 12),
+		Periods:     BuildInsightPeriods(transactions, summary, time.UTC),
 		WindowStart: start,
 		WindowEnd:   end,
+	})
+
+	t.Run("lists the transactions behind this week and last", func(t *testing.T) {
+		assert.Contains(t, page, "This week")
+		assert.Contains(t, page, "Last week")
 	})
 
 	t.Run("offers every tracked category at its own cadence", func(t *testing.T) {
@@ -679,4 +691,16 @@ func TestRenderTransactionsChartUnsplit(t *testing.T) {
 		page := render(series)
 		assert.Contains(t, page, "existing.options.plugins.legend.display = split")
 	})
+}
+
+func TestRenderTransactionGroupSwap(t *testing.T) {
+	page := renderTemplate(t, "transactions.group.swap", []map[string]interface{}{
+		{"ID": "trans_a", "Insight": "Groceries", "Excluded": false, "Assigned": "groceries", "Groups": SpendGroups(), "Layout": "m", "OOB": false},
+		{"ID": "trans_a", "Insight": "Groceries", "Excluded": false, "Assigned": "groceries", "Groups": SpendGroups(), "Layout": "d", "OOB": true},
+	})
+	assert.Contains(t, page, `id="txgrp-m-trans_a"`)
+	assert.Contains(t, page, `id="txgrp-d-trans_a" hx-swap-oob="true"`)
+	assert.Contains(t, page, `<option value="groceries" selected>Groceries</option>`)
+	assert.Contains(t, page, `id="txins-m-trans_a" hx-swap-oob="true"`, "the insight toggle follows the new category")
+	assert.Contains(t, page, `id="txins-d-trans_a" hx-swap-oob="true"`)
 }

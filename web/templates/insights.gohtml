@@ -138,6 +138,46 @@
                 {{ end }}
             </div>
 
+            <!-- Transaction breakdown. The individual purchases behind this
+                 period and the last, so a surprising number can be checked. -->
+            {{ range .Periods }}
+                <div class="b-card b-card-pad mb-3 b-accent-{{ $.Selected.Accent }}">
+                    <div class="b-card-head">
+                        <div>
+                            <h3 class="b-card-title">{{ .Label }}</h3>
+                            <p class="b-card-sub">{{ $.Selected.Label }} since {{ .Start.Format "Mon 2 Jan" }}</p>
+                        </div>
+                        <div class="text-end flex-shrink-0">
+                            <div class="fw-bold b-num">{{ .Total | fmtCurrency }}</div>
+                            <div class="b-delta-note">{{ len .Rows }} transaction{{ if ne (len .Rows) 1 }}s{{ end }}</div>
+                        </div>
+                    </div>
+
+                    {{ if .Rows }}
+                        <ul class="b-rank">
+                            {{ range .Rows }}
+                                <li>
+                                    <div class="b-rank-item">
+                                        <span class="b-chip b-chip-sm"><i class="bi {{ .Icon }}"></i></span>
+                                        <div class="b-rank-body">
+                                            <div class="d-flex align-items-baseline justify-content-between gap-2">
+                                                <span class="b-rank-name">{{ .Title }}</span>
+                                                <span class="b-rank-value {{ if gt .Amount 0.0 }}text-success{{ end }}">{{ .Amount | fmtCurrency }}</span>
+                                            </div>
+                                            <div class="b-rank-meta">
+                                                {{ .Date.Local.Format "Mon 2 Jan" }}{{ if .Assigned }} · added by hand{{ end }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </li>
+                            {{ end }}
+                        </ul>
+                    {{ else }}
+                        <p class="b-card-sub mb-0">Nothing counted yet.</p>
+                    {{ end }}
+                </div>
+            {{ end }}
+
             <script>
                 (function () {
                     const canvas = document.getElementById("insightsChart");

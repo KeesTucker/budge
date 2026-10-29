@@ -280,6 +280,31 @@ func (s *Store) ToggleInsightExclusion(id string) (models.InsightExclusions, err
 	return exclusions, Update[models.InsightExclusions](s.db, exclusions)
 }
 
+// GetInsightAssignments returns the transactions put in a spend group by hand.
+func (s *Store) GetInsightAssignments() (models.InsightAssignments, error) {
+	assignments, err := Get[models.InsightAssignments](s.db, models.InsightAssignments{}.Key())
+	if err != nil || assignments.Groups == nil {
+		return models.InsightAssignments{Groups: map[string]string{}}, nil
+	}
+	return assignments, nil
+}
+
+// AssignInsight puts a transaction in a spend group by hand, or hands it back
+// to the rules when the group is empty, and returns the assignments as they
+// now stand.
+func (s *Store) AssignInsight(id, group string) (models.InsightAssignments, error) {
+	assignments, err := s.GetInsightAssignments()
+	if err != nil {
+		return assignments, err
+	}
+	if group == "" {
+		delete(assignments.Groups, id)
+	} else {
+		assignments.Groups[id] = group
+	}
+	return assignments, Update[models.InsightAssignments](s.db, assignments)
+}
+
 /* Notifications */
 
 // notificationRetention caps how many notifications are kept. They are a log of
@@ -394,6 +419,9 @@ func (s *Store) ExportBackup() (models.Backup, error) {
 	if exclusions, err := s.GetInsightExclusions(); err == nil {
 		backup.InsightExclusions = exclusions.TransactionIDs
 	}
+	if assignments, err := s.GetInsightAssignments(); err == nil && len(assignments.Groups) > 0 {
+		backup.InsightAssignments = assignments.Groups
+	}
 	return backup, nil
 }
 
@@ -451,6 +479,15 @@ func (s *Store) ImportBackup(backup models.Backup) error {
 	}
 	exclusions.TransactionIDs = unionStrings(exclusions.TransactionIDs, backup.InsightExclusions)
 
+	// A transaction the backup assigns takes the backup's group.
+	assignments, err := s.GetInsightAssignments()
+	if err != nil {
+		return err
+	}
+	for id, group := range backup.InsightAssignments {
+		assignments.Groups[id] = group
+	}
+
 	var salary []models.BudgetSalary
 	if backup.BudgetSalary != nil {
 		salary = append(salary, *backup.BudgetSalary)
@@ -473,6 +510,7 @@ func (s *Store) ImportBackup(backup models.Backup) error {
 			putAll(tx, []models.RemovedAccounts{removed}),
 			putAll(tx, []models.SpendRules{rules}),
 			putAll(tx, []models.InsightExclusions{exclusions}),
+			putAll(tx, []models.InsightAssignments{assignments}),
 		)
 	})
 }
