@@ -67,7 +67,7 @@ func convertSpendGroups(current models.CategorySettings, legacy legacySpend) mod
 		groups = append(groups, group{key: custom.Key, label: custom.Label, merchants: custom.Merchants, keywords: custom.Keywords})
 	}
 	for _, seed := range seedGroups {
-		g := group{key: seed.key, label: seed.label, types: seed.types, merchants: seed.merchants, keywords: seed.keywords}
+		g := group(seed)
 		if edited, ok := legacy.rules.Groups[seed.key]; ok {
 			g.merchants, g.keywords = edited.Merchants, edited.Keywords
 		}
