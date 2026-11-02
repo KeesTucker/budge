@@ -63,11 +63,18 @@ func (app *Application) Settings(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	categories, err := app.buildCategoriesView()
+	if err != nil {
+		app.Toast(c, "Error", "Could not read category rules.")
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
 	return c.Render(http.StatusOK, "settings", map[string]interface{}{
 		"accounts":       accounts,
 		"removed":        removed.Accounts,
 		"restoring":      removed.Restoring(),
 		"spendRules":     spendRuleViews(),
+		"categories":     categories,
 		"akahuAppToken":  akahuConfig.AppToken,
 		"akahuUserToken": akahuConfig.UserToken,
 		"sync":           app.syncStatus(),

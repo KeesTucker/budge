@@ -36,10 +36,26 @@ func templateFuncs() template.FuncMap {
 		},
 		// fmtCurrencyAbs drops the sign, for places where an adjacent label
 		// ("deficit", "over-allocated") already carries the direction.
+		// fmtWhole rounds to whole dollars, for figures read at a glance where
+		// cents are noise, such as targets and their averages.
+		"fmtWhole": func(number float64) string {
+			p := message.NewPrinter(language.English)
+			if number < 0 {
+				return p.Sprintf("-$%.0f", math.Abs(number))
+			}
+			return p.Sprintf("$%.0f", number)
+		},
+		// fmtWholeAbs is fmtWhole without the sign, for where the words say
+		// which way the figure goes.
+		"fmtWholeAbs": func(number float64) string {
+			p := message.NewPrinter(language.English)
+			return p.Sprintf("$%.0f", math.Abs(number))
+		},
 		"fmtCurrencyAbs": func(number float64) string {
 			p := message.NewPrinter(language.English)
 			return p.Sprintf("$%.2f", math.Abs(number))
 		},
+		"budgetKinds": func() []budgetKindOption { return budgetKindOptions },
 		"fmtPercent": func(number float64) string {
 			p := message.NewPrinter(language.English)
 			return p.Sprintf("%.1f%%", math.Abs(number)*100)
@@ -207,6 +223,11 @@ func NewApplication(store *database.Store, integrations *integrations.Integratio
 	// Settings
 	app.http.GET("/settings", app.Settings)
 	app.http.POST("/settings/schedule", app.SettingsSaveSchedule)
+	app.http.POST("/settings/categories", app.SettingsAddCategory)
+	app.http.DELETE("/settings/categories/:id", app.SettingsDeleteCategory)
+	app.http.POST("/settings/rules", app.SettingsAddRule)
+	app.http.GET("/settings/rules/preview", app.SettingsPreviewRule)
+	app.http.DELETE("/settings/rules/:id", app.SettingsDeleteRule)
 	app.http.POST("/settings/danger/remove/synced", app.SettingsDeleteSynced)
 	app.http.GET("/settings/accounts", app.SettingsAccounts)
 	app.http.POST("/settings/spend-groups", app.SettingsAddSpendGroup)
@@ -233,9 +254,15 @@ func NewApplication(store *database.Store, integrations *integrations.Integratio
 	app.http.POST("/timeline/hide", app.TimelineHide)
 	app.http.POST("/timeline/restore", app.TimelineRestore)
 
-	// Adding a transaction to a memory from the transactions list.
+	// Adding transactions to a memory from the transactions list, one at a
+	// time or every ticked row at once, and taking them back out.
+	app.http.POST("/transactions/memory", app.TransactionsAddToMemory)
+	app.http.DELETE("/transactions/memory", app.TransactionsRemoveFromMemory)
 	app.http.POST("/transactions/:id/memory", app.TransactionAddToMemory)
+	app.http.DELETE("/transactions/:id/memory", app.TransactionRemoveFromMemory)
+	app.http.GET("/transactions/:id/category", app.TransactionCategoryForm)
 	app.http.POST("/transactions/:id/category", app.TransactionSetCategory)
+	app.http.POST("/transactions/:id/insight", app.TransactionSetInsight)
 
 	// Portfolio: everything owned and owed. Assets tracked by hand sit under it
 	// alongside the synced accounts, so their URLs sit under it too.
@@ -251,22 +278,25 @@ func NewApplication(store *database.Store, integrations *integrations.Integratio
 	app.http.GET("/portfolio/assets/:id", app.Asset)
 	app.http.DELETE("/portfolio/assets/:id", app.AssetDelete)
 	app.http.POST("/portfolio/assets/:id/valuations", app.AssetAddValuation)
+	app.http.POST("/portfolio/assets/:id/purchase", app.AssetUpdatePurchase)
 	app.http.POST("/portfolio/assets/:id/estimate", app.AssetRefreshEstimate)
 	app.http.POST("/portfolio/assets/:id/terms", app.AssetSaveTerms)
 	app.http.DELETE("/portfolio/assets/:id/valuations/:valuationId", app.AssetDeleteValuation)
 
 	// Budget
 	app.http.GET("/budget", app.Budget)
+	app.http.GET("/budget/income", app.BudgetIncome)
+	// The targets now live on the budget page itself.
+	app.http.GET("/budget/targets", func(c echo.Context) error { return c.Redirect(http.StatusMovedPermanently, "/budget") })
 	app.http.GET("/budget/summary", app.BudgetSummary)
 	app.http.POST("/budget/salary", app.BudgetSaveSalary)
-	app.http.GET("/budget/performance", app.BudgetPerformance)
 	app.http.GET("/budget/cards", app.BudgetCards)
+	app.http.GET("/budget/allocation", app.BudgetAllocation)
 	app.http.POST("/budget/savings-goal", app.BudgetSaveSavingsGoal)
 	app.http.POST("/budget/targets", app.BudgetSaveTarget)
+	app.http.POST("/budget/kind", app.BudgetSaveKind)
+	app.http.GET("/budget/performance", app.BudgetPerformance)
 	app.http.POST("/budget/spread", app.BudgetSaveSpread)
-	app.http.POST("/budget/subitems", app.BudgetAddSubItem)
-	app.http.PUT("/budget/items/:id/subitems/:subid", app.BudgetUpdateSubItem)
-	app.http.DELETE("/budget/items/:id/subitems/:subid", app.BudgetDeleteSubItem)
 
 	app.scheduler = newScheduler(app)
 

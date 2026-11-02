@@ -162,6 +162,33 @@ func (app *Application) Transactions(c echo.Context) error {
 		})
 	}
 
+	// Uncategorised spending is counted across everything recent, whatever the
+	// search, so the warning about it is the same wherever the page is opened.
+	since := uncategorisedSince(time.Now())
+	recent, err := app.store.ReadTransactionsByDate(since, time.Now())
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	budgetItems, err := app.store.ReadBudgetItems()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	items := budgetItemsByCategory(budgetItems)
+	var uncategorisedCount int
+	var uncategorisedTotal float64
+	for _, t := range recent {
+		if isUncategorisedSpend(t, since, items) {
+			uncategorisedCount++
+			uncategorisedTotal -= t.Amount
+		}
+	}
+	uncategorisedOnly := c.QueryParam("uncategorised") != ""
+	if uncategorisedOnly {
+		transactions = slices.DeleteFunc(transactions, func(t models.Transaction) bool {
+			return !isUncategorisedSpend(t, since, items)
+		})
+	}
+
 	// Totals cover every match, not just the page on screen, so narrowing the
 	// search tells you what the whole result set is worth.
 	var in, out float64
@@ -218,7 +245,6 @@ func (app *Application) Transactions(c echo.Context) error {
 		"days":      days,
 		"memories":  memories,
 		"groups":    SpendGroups(),
-		"kinds":     models.MemoryKinds,
 		"search":    search,
 		"account":   account,
 		"from":      c.QueryParam("from"),
@@ -232,7 +258,28 @@ func (app *Application) Transactions(c echo.Context) error {
 		"showing":   len(page),
 		"hasMore":   total > len(page),
 		"nextLimit": limit + transactionPageSize,
+
+		"uncategorisedCount": uncategorisedCount,
+		"uncategorisedTotal": uncategorisedTotal,
+		"uncategorisedOnly":  uncategorisedOnly,
+		"uncategorisedWeeks": untargetedWindowWeeks,
 	})
+}
+
+// uncategorisedSince is how far back the transactions page looks for
+// uncategorised spending: the same 13 weeks the budget measures untargeted
+// categories over, so the warning and the budget agree.
+func uncategorisedSince(now time.Time) time.Time {
+	return isoWeekStart(now).AddDate(0, 0, -7*untargetedWindowWeeks)
+}
+
+// isUncategorisedSpend reports whether a transaction is recent spending that
+// neither Akahu, a rule nor the owner has categorised: what lands in the
+// budget's Uncategorised group. Rows there the owner has marked as savings or
+// ignored are a decision already made, so they are not counted.
+func isUncategorisedSpend(tx models.Transaction, since time.Time, items map[string]models.BudgetItem) bool {
+	broad, _, ok := countedSpend(tx, items)
+	return ok && broad == uncategorisedGroup && !tx.Date.Before(since)
 }
 
 // transactionDateRange reads an inclusive range of local dates into the times
@@ -425,10 +472,10 @@ func nonEmptyBand(data []float64) ([]float64, bool) {
 // out of the insights whatever the rules say.
 const transactionExclude = "none"
 
-// TransactionSetCategory puts a transaction in a spend group by hand, hands
-// it back to the rules, or takes its category away, and answers with
+// TransactionSetInsight puts a transaction in a spend group by hand, hands
+// it back to the rules, or takes it out of every group, and answers with
 // its control in both layouts, like the memory control.
-func (app *Application) TransactionSetCategory(c echo.Context) error {
+func (app *Application) TransactionSetInsight(c echo.Context) error {
 	tx, err := app.store.GetTransaction(c.Param("id"))
 	if err != nil || tx.Id == "" {
 		return echo.NewHTTPError(http.StatusNotFound, "No such transaction.")
@@ -482,5 +529,5 @@ func (app *Application) TransactionSetCategory(c echo.Context) error {
 			"Assigned": row.Assigned, "Groups": groups, "Layout": each, "OOB": each != layout,
 		})
 	}
-	return c.Render(http.StatusOK, "transactions.category.swap", controls)
+	return c.Render(http.StatusOK, "transactions.insight.swap", controls)
 }

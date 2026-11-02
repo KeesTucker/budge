@@ -85,8 +85,9 @@ func TestBudgetLine(t *testing.T) {
 	assert.Equal(t, "Appearance", broad, "anything no group matches keeps its Akahu category")
 	assert.Equal(t, "Haircuts and treatments", specific)
 
-	_, _, _, _, ok = budgetLine(spendTransaction("", "", -30, now))
-	assert.False(t, ok, "uncategorised spending no group matches has nowhere to go")
+	broad, _, _, _, ok = budgetLine(spendTransaction("", "", -30, now))
+	assert.True(t, ok)
+	assert.Equal(t, uncategorisedGroup, broad, "uncategorised spending no group matches is still counted")
 }
 
 func TestCashGroup(t *testing.T) {

@@ -123,8 +123,8 @@ func TestRenderTransactions(t *testing.T) {
 		assert.Contains(t, page, "Sun 6 Sep 2026")
 	})
 
-	t.Run("offers to put each transaction in a category by hand", func(t *testing.T) {
-		assert.Contains(t, page, `hx-post="/transactions/`+transactions[0].Id+`/category"`)
+	t.Run("offers to put each transaction in a spend group by hand", func(t *testing.T) {
+		assert.Contains(t, page, `hx-post="/transactions/`+transactions[0].Id+`/insight"`)
 		assert.Contains(t, page, `<option value="groceries">Groceries</option>`)
 	})
 
@@ -703,21 +703,21 @@ func TestRenderTransactionCategorySwap(t *testing.T) {
 		return data
 	}
 
-	page := renderTemplate(t, "transactions.category.swap", []map[string]interface{}{
+	page := renderTemplate(t, "transactions.insight.swap", []map[string]interface{}{
 		control("m", false, map[string]interface{}{"Assigned": "petrol", "Insight": "Petrol"}),
 		control("d", true, map[string]interface{}{"Assigned": "petrol", "Insight": "Petrol"}),
 	})
-	assert.Contains(t, page, `id="txcat-m-trans_a"`)
-	assert.Contains(t, page, `id="txcat-d-trans_a" hx-swap-oob="true"`)
+	assert.Contains(t, page, `id="txins-m-trans_a"`)
+	assert.Contains(t, page, `id="txins-d-trans_a" hx-swap-oob="true"`)
 	assert.Contains(t, page, `<option value="petrol" selected>Petrol</option>`)
 	assert.Contains(t, page, "Automatic (Groceries)", "says what automatic would do")
-	assert.Contains(t, page, "bi-tag-fill")
+	assert.Contains(t, page, "Counted in Petrol, chosen by you")
 
-	excluded := renderTemplate(t, "transactions.category", control("m", false, map[string]interface{}{"Excluded": true}))
-	assert.Contains(t, excluded, `<option value="none" selected>No category</option>`, "one control also takes the category away")
-	assert.Contains(t, excluded, "No category, chosen by you")
+	excluded := renderTemplate(t, "transactions.insight", control("m", false, map[string]interface{}{"Excluded": true}))
+	assert.Contains(t, excluded, `<option value="none" selected>None</option>`, "one control also takes the group away")
+	assert.Contains(t, excluded, "No spend group, chosen by you")
 
-	automatic := renderTemplate(t, "transactions.category", control("m", false, nil))
+	automatic := renderTemplate(t, "transactions.insight", control("m", false, nil))
 	assert.Contains(t, automatic, `<option value="" selected>Automatic (Groceries)</option>`)
 	assert.Contains(t, automatic, "bi-pie-chart-fill")
 }

@@ -1,4 +1,4 @@
-// ---- Weekly performance chart ----
+// ---- Performance chart ----
 
 function initBudgetPerfChart() {
     // A chart whose canvas has been swapped out is still registered, and
@@ -14,16 +14,15 @@ function initBudgetPerfChart() {
     const target  = parseFloat(canvas.dataset.target);
     const labels  = JSON.parse(canvas.dataset.labels);
     const goal    = parseFloat(canvas.dataset.savings) || 0;
-    const monthly = canvas.dataset.monthly === 'true';
     const moneyIn = JSON.parse(canvas.dataset.moneyIn || '[]');
     const income  = actuals.map((_, i) => moneyIn[i] || 0);
     const hasIncome = income.some(v => v > 0);
 
     // Each period split against the budget and against what actually came
     // in: pay, people paying you back, money from accounts Budge no longer
-    // tracks. Spending up to the budget target is blue, past the target but
-    // still within what came in is amber, and past what came in is red on
-    // top. What was left over is green up to the savings goal, grey beyond.
+    // tracks. Spending up to the budget target is slate, past the target but
+    // still within what came in is clay, and past what came in is brick on
+    // top. What was left over is sage up to the savings goal, grey beyond.
     // The last bar is the week or month in progress: what it has not spent
     // yet is not saved yet either, and its pay may not have landed, so it is
     // only measured against the budget.
@@ -39,22 +38,22 @@ function initBudgetPerfChart() {
 
     const money = v => '$' + v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
     const bar = (label, data, colour) => ({
-        type: 'bar', label, data, stack: 'week',
+        type: 'bar', label, data, stack: 'period',
         backgroundColor: colour, borderWidth: 0, order: 2,
     });
     const datasets = [
-        bar(target > 0 ? 'Within budget' : 'Spending', within, 'rgba(13,110,253,0.7)'),
-        bar('Over budget', overBudget, 'rgba(253,153,47,0.85)'),
+        bar(target > 0 ? 'Within budget' : 'Spending', within, budge.colour('slate')),
+        bar('Over budget', overBudget, budge.colour('clay')),
     ];
     if (hasIncome) {
         datasets.push(
-            bar('Overspent', overspent, 'rgba(220,53,69,0.8)'),
-            bar('Savings', saved, 'rgba(25,135,84,0.75)'),
-            bar('Unallocated', unallocated, 'rgba(108,117,125,0.35)'),
+            bar('Overspent', overspent, budge.colour('brick')),
+            bar('Savings', saved, budge.colour('sage')),
+            bar('Unallocated', unallocated, budge.mix('muted', 0.35)),
         );
     }
-    // No lines for money in or the budget target: where blue turns amber is
-    // the target, and where red starts is what came in, so lines only
+    // No lines for money in or the budget target: where slate turns clay is
+    // the target, and where brick starts is what came in, so lines only
     // repeated the bars.
 
     new Chart(canvas, {
@@ -95,71 +94,6 @@ function initBudgetPerfChart() {
 document.body.addEventListener('htmx:afterSettle', initBudgetPerfChart);
 initBudgetPerfChart();
 
-// ---- Broad category collapse ----
-//
-// Collapse state lives here rather than in the DOM because saving a target
-// swaps that row's <tbody> out, which would otherwise drop the collapsed class
-// and pop a single row back open inside a collapsed group.
-
-const collapsedGroups = new Set();
-
-function applyGroupCollapse() {
-    document.querySelectorAll('tbody[data-group]').forEach(tbody => {
-        tbody.classList.toggle('d-none', collapsedGroups.has(tbody.dataset.group));
-    });
-}
-
-function toggleBroadGroup(btn, groupId) {
-    const nowCollapsed = !collapsedGroups.has(groupId);
-    if (nowCollapsed) {
-        collapsedGroups.add(groupId);
-    } else {
-        collapsedGroups.delete(groupId);
-    }
-    applyGroupCollapse();
-    btn.setAttribute('aria-expanded', String(!nowCollapsed));
-    const icon = btn.querySelector('i');
-    if (icon) icon.className = nowCollapsed ? 'bi bi-folder2' : 'bi bi-folder2-open';
-}
-
-document.body.addEventListener('htmx:afterSwap', applyGroupCollapse);
-
-// ---- Merchant tag popovers ----
-//
-// The table shows the highest-spending merchants inline and folds the rest
-// into a popover. Instances are tracked so that rows swapped out by htmx do
-// not leave orphaned popovers attached to the body.
-
-const merchantPopovers = new Map(); // trigger element -> bootstrap.Popover
-
-function initMerchantPopovers() {
-    merchantPopovers.forEach((popover, el) => {
-        if (!document.body.contains(el)) {
-            popover.dispose();
-            merchantPopovers.delete(el);
-        }
-    });
-
-    document.querySelectorAll('.budge-merchants-more').forEach(btn => {
-        if (merchantPopovers.has(btn)) return;
-        const source = btn.parentElement.querySelector('[data-merchant-list]');
-        if (!source) return;
-        merchantPopovers.set(btn, new bootstrap.Popover(btn, {
-            html: true,
-            // 'focus' gives click to open, click-away to dismiss.
-            trigger: 'focus',
-            placement: 'top',
-            container: 'body',
-            title: 'Merchants',
-            // Escaped server-side by html/template.
-            content: () => source.innerHTML,
-        }));
-    });
-}
-
-document.body.addEventListener('htmx:afterSwap', initMerchantPopovers);
-initMerchantPopovers();
-
 // ---- Save confirmation ----
 
 function flashSaved(scope) {
@@ -188,7 +122,7 @@ function convertTargetFrequency(sel) {
     const prev = sel.dataset.prev || 'weekly';
     const next = sel.value;
     if (prev === next) return;
-    const amountEl = sel.closest('tr').querySelector('input[name="target_amount"]');
+    const amountEl = sel.closest('form').querySelector('input[name="target_amount"]');
     if (amountEl && amountEl.value !== '') {
         const weekly = _toWeekly(parseFloat(amountEl.value), prev);
         amountEl.value = _fromWeekly(weekly, next).toFixed(2);

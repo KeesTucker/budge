@@ -122,7 +122,7 @@ func TestGetBudgetSalaryDefaults(t *testing.T) {
 	assert.Zero(t, salary.Salary)
 }
 
-func TestTransactionSetCategory(t *testing.T) {
+func TestTransactionSetInsight(t *testing.T) {
 	app := newTestApp(t)
 	t.Cleanup(func() {
 		insightAssignments.Store(nil)
@@ -138,7 +138,7 @@ func TestTransactionSetCategory(t *testing.T) {
 		c, rec := postForm(t, app, url.Values{"group": {group}, "layout": {"d"}})
 		c.SetParamNames("id")
 		c.SetParamValues(tx.Id)
-		require.NoError(t, app.TransactionSetCategory(c))
+		require.NoError(t, app.TransactionSetInsight(c))
 		assert.Equal(t, http.StatusOK, rec.Code)
 	}
 

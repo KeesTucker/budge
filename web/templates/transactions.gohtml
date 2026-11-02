@@ -7,15 +7,16 @@
 
     <!-- Filters. Sticky, so search stays reachable well down a long list. -->
     <div class="b-filters">
-        <!-- Triggers name the filter's own fields. A bare "from:select" also
-             fired on the memory picker in each row, reloading the list and
-             taking the open picker with it before Save could be pressed. -->
+        {{/* The listeners name the two filters by id. A bare "from:select"
+             would match every select on the page, so picking a memory or a
+             category further down would reload the list underneath it. */}}
         <form hx-get="/transactions"
               hx-trigger="input delay:400ms from:#search, change from:#account"
               hx-target="#main"
               hx-push-url="true">
             <input type="hidden" name="from" value="{{ .from }}">
             <input type="hidden" name="to" value="{{ .to }}">
+            {{ if .uncategorisedOnly }}<input type="hidden" name="uncategorised" value="1">{{ end }}
 
             <div class="row g-2">
                 <div class="col-12 col-sm-7">
@@ -61,6 +62,30 @@
         </div>
     </div>
 
+    {{/* Uncategorised spending all counts as unbudgeted, so it is called out
+         until it is filed, with a way straight to it. */}}
+    {{ if .uncategorisedOnly }}
+        <div class="alert alert-warning d-flex align-items-start gap-2 mb-3" role="status">
+            <i class="bi bi-funnel" aria-hidden="true"></i>
+            <div class="flex-grow-1">
+                Showing only spending from the last {{ .uncategorisedWeeks }} weeks with no category.
+                Use <i class="bi bi-tag" aria-hidden="true"></i><span class="visually-hidden">the tag button</span>
+                on each to file it, or tick the rule box to file everything like it.
+            </div>
+            <a class="text-nowrap" href="/transactions" hx-boost="true" hx-target="#main">Show everything</a>
+        </div>
+    {{ else if .uncategorisedCount }}
+        <div class="alert alert-warning d-flex align-items-start gap-2 mb-3" role="status">
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+            <div class="flex-grow-1">
+                <span class="fw-semibold">{{ .uncategorisedCount }} payment{{ if ne .uncategorisedCount 1 }}s{{ end }} in the last {{ .uncategorisedWeeks }} weeks
+                {{ if eq .uncategorisedCount 1 }}has{{ else }}have{{ end }} no category</span>, {{ .uncategorisedTotal | fmtWhole }} in all.
+                Until they are filed, the budget can only lump them together under Uncategorised.
+            </div>
+            <a class="text-nowrap" href="/transactions?uncategorised=1" hx-boost="true" hx-target="#main">Show them</a>
+        </div>
+    {{ end }}
+
     <!-- Spend behind the results. Stacked by the same categories that colour the
          rows, so a band and a row chip of the same colour mean the same thing. -->
     {{ if .series.HasData }}
@@ -86,6 +111,10 @@
 
     {{ if .days }}
 
+        <!-- Ticking rows brings up a bar to add them all to one memory, or take
+             them out of theirs, as on the timeline. -->
+        <div class="b-tx-feed">
+
         <!-- Phone: a card per transaction, grouped under the day it happened. -->
         <div class="d-md-none">
             {{ range .days }}
@@ -98,10 +127,10 @@
                 <div class="b-tx-list mb-2">
                     {{ range .Rows }}
                         <div class="b-tx{{ if .Accent }} b-accent-{{ .Accent }}{{ end }}">
-                            <span class="b-chip"><i class="bi {{ .Icon }}"></i></span>
+                            {{ template "transactions.pick" (dict "Row" . "Size" "") }}
                             <div class="b-tx-body">
                                 <div class="b-tx-name">{{ .Title }}</div>
-                                <div class="b-tx-meta">
+                                <div class="b-tx-meta" id="txcats-m-{{ .Id }}">
                                     {{ range .Categories }}
                                         <span class="badge-category">{{ . }}</span>
                                     {{ end }}
@@ -110,8 +139,9 @@
                             <div class="b-tx-amount {{ if gt .Amount 0.0 }}text-success{{ else }}text-danger{{ end }}">
                                 {{ .Amount | fmtCurrency }}
                             </div>
-                            {{ template "transactions.category" (dict "ID" .Id "Insight" .Insight "Automatic" .Automatic "Excluded" .Excluded "Assigned" .Assigned "Groups" $.groups "Layout" "m") }}
-                            {{ template "transactions.memory" (dict "ID" .Id "MemoryID" .MemoryID "MemoryTitle" .MemoryTitle "Layout" "m" "Options" $.memories "Kinds" $.kinds) }}
+                            {{ template "transactions.insight" (dict "ID" .Id "Insight" .Insight "Automatic" .Automatic "Excluded" .Excluded "Assigned" .Assigned "Groups" $.groups "Layout" "m") }}
+                            {{ template "transactions.category" (dict "ID" .Id "Layout" "m") }}
+                            {{ template "transactions.memory" (dict "ID" .Id "MemoryID" .MemoryID "MemoryTitle" .MemoryTitle "Layout" "m" "Options" $.memories) }}
                         </div>
                     {{ end }}
                 </div>
@@ -127,7 +157,7 @@
                     <th>Category</th>
                     <th>Date</th>
                     <th class="text-end">Amount</th>
-                    <th><span class="visually-hidden">Memory</span></th>
+                    <th><span class="visually-hidden">Category and memory</span></th>
                 </tr>
                 </thead>
                 <tbody>
@@ -137,14 +167,16 @@
                         <tr>
                             <td>
                                 <div class="d-flex align-items-center gap-2{{ if .Accent }} b-accent-{{ .Accent }}{{ end }}">
-                                    <span class="b-chip b-chip-sm"><i class="bi {{ .Icon }}"></i></span>
+                                    {{ template "transactions.pick" (dict "Row" . "Size" "b-chip-sm") }}
                                     <span class="fw-semibold">{{ .Title }}</span>
                                 </div>
                             </td>
                             <td>
-                                {{ range .Categories }}
-                                    <span class="badge-category">{{ . }}</span>
-                                {{ end }}
+                                <span id="txcats-d-{{ .Id }}">
+                                    {{ range .Categories }}
+                                        <span class="badge-category">{{ . }}</span>
+                                    {{ end }}
+                                </span>
                             </td>
                             <td class="text-muted">{{ $date.Format "2 Jan 2006" }}</td>
                             <td class="text-end fw-semibold b-num {{ if gt .Amount 0.0 }}text-success{{ else }}text-danger{{ end }}">
@@ -152,8 +184,9 @@
                             </td>
                             <td class="b-txmem-cell">
                                 <div class="d-flex align-items-center justify-content-end gap-1">
-                                {{ template "transactions.category" (dict "ID" .Id "Insight" .Insight "Automatic" .Automatic "Excluded" .Excluded "Assigned" .Assigned "Groups" $.groups "Layout" "d") }}
-                                {{ template "transactions.memory" (dict "ID" .Id "MemoryID" .MemoryID "MemoryTitle" .MemoryTitle "Layout" "d" "Options" $.memories "Kinds" $.kinds) }}
+                                    {{ template "transactions.insight" (dict "ID" .Id "Insight" .Insight "Automatic" .Automatic "Excluded" .Excluded "Assigned" .Assigned "Groups" $.groups "Layout" "d") }}
+                                    {{ template "transactions.category" (dict "ID" .Id "Layout" "d") }}
+                                    {{ template "transactions.memory" (dict "ID" .Id "MemoryID" .MemoryID "MemoryTitle" .MemoryTitle "Layout" "d" "Options" $.memories) }}
                                 </div>
                             </td>
                         </tr>
@@ -166,13 +199,23 @@
         {{ if .hasMore }}
             <div class="text-center my-3">
                 <a class="btn btn-outline-secondary"
-                   href="/transactions?search={{ .search }}&account={{ .account }}&from={{ .from }}&to={{ .to }}&limit={{ .nextLimit }}"
+                   href="/transactions?search={{ .search }}&account={{ .account }}&from={{ .from }}&to={{ .to }}&limit={{ .nextLimit }}{{ if .uncategorisedOnly }}&uncategorised=1{{ end }}"
                    hx-boost="true" hx-target="#main">
                     Load more
                     <span class="text-muted">({{ .total }} in total)</span>
                 </a>
             </div>
         {{ end }}
+
+        {{/* Picking a memory saves at once. Unticks everything once saved,
+             which also hides the bar again. */}}
+        <form id="tx-group" class="b-tl-form b-tl-groupbar" hx-post="/transactions/memory" hx-trigger="change" hx-swap="none"
+              hx-on::after-request="if (event.detail.successful) document.querySelectorAll('[form=tx-group]:checked').forEach(b => b.checked = false)">
+            <span class="b-tl-count"></span>
+            {{ template "transactions.groupbar" (dict "Options" .memories) }}
+        </form>
+
+        </div>
 
     {{ else }}
         <div class="b-empty">
@@ -286,70 +329,154 @@
      another. Every transaction is drawn twice, as a phone card and a table
      row, so the id carries the layout to keep the two copies apart. */}}
 {{ define "transactions.memory" }}
-<details class="b-txmem" id="txmem-{{ .Layout }}-{{ .ID }}"{{ if .OOB }} hx-swap-oob="true"{{ end }}>
-    <summary class="b-txmem-toggle{{ if .MemoryID }} b-txmem-in{{ end }}"
-             title="{{ if .MemoryID }}In “{{ .MemoryTitle }}”{{ else }}Add to memory{{ end }}"
-             aria-label="{{ if .MemoryID }}In memory “{{ .MemoryTitle }}”, move to another{{ else }}Add to memory{{ end }}">
-        <i class="bi {{ if .MemoryID }}bi-bookmark-check-fill{{ else }}bi-bookmark-plus{{ end }}"></i>
+{{ if .MemoryID }}
+    {{/* Already in a memory: one click takes it back out. The bookmark turns
+         to a cross on hover, so the click is not a surprise. */}}
+    <button type="button" class="b-txmem b-txmem-toggle b-txmem-in" id="txmem-{{ .Layout }}-{{ .ID }}"{{ if .OOB }} hx-swap-oob="true"{{ end }}
+            hx-delete="/transactions/{{ .ID }}/memory" hx-vals='{{ dict "layout" .Layout | toJSON }}'
+            hx-target="this" hx-swap="outerHTML"
+            title="In “{{ .MemoryTitle }}”. Click to take it out"
+            aria-label="Remove from memory “{{ .MemoryTitle }}”">
+        <i class="bi bi-bookmark-check-fill b-txmem-held"></i>
+        <i class="bi bi-bookmark-x-fill b-txmem-drop"></i>
+    </button>
+{{ else }}
+    {{/* Picking a memory saves straight away. New memories are made on the
+         timeline, so this stays one small dropdown. */}}
+    <details class="b-txmem" id="txmem-{{ .Layout }}-{{ .ID }}"{{ if .OOB }} hx-swap-oob="true"{{ end }}>
+        <summary class="b-txmem-toggle" title="Add to memory" aria-label="Add to memory">
+            <i class="bi bi-bookmark-plus"></i>
+        </summary>
+        <form class="b-tl-form b-txmem-form" hx-post="/transactions/{{ .ID }}/memory" hx-trigger="change"
+              hx-target="#txmem-{{ .Layout }}-{{ .ID }}" hx-swap="outerHTML">
+            <input type="hidden" name="layout" value="{{ .Layout }}">
+            {{ template "transactions.memory.pick" . }}
+        </form>
+    </details>
+{{ end }}
+{{ end }}
+
+{{ define "transactions.memory.pick" }}
+{{ if .Options }}
+    <select class="form-select form-select-sm" name="memory" aria-label="Add to memory">
+        <option value="" selected disabled>Add to memory&hellip;</option>
+        {{ range .Options }}<option value="{{ .Id }}">{{ .Label }}</option>{{ end }}
+    </select>
+{{ else }}
+    <span class="small text-muted">No memories yet. <a href="/timeline">Start one on the timeline</a>.</span>
+{{ end }}
+{{ end }}
+
+{{/* A row's icon doubles as its tick box, so selecting needs no extra
+     column. Once anything is ticked every icon turns into a box, so it is
+     plain which rows are in and which are not. */}}
+{{ define "transactions.pick" }}
+<label class="b-tx-pick" title="Select">
+    <input type="checkbox" class="b-tl-select visually-hidden" name="tx" value="{{ .Row.Id }}"
+           form="tx-group" aria-label="Select {{ .Row.Title }}">
+    <span class="b-chip {{ .Size }}">
+        <i class="bi {{ .Row.Icon }} b-tx-pick-icon"></i>
+        <i class="bi bi-check-lg b-tx-pick-tick"></i>
+    </span>
+</label>
+{{ end }}
+
+{{ define "transactions.category" }}
+{{/* The form is fetched when the popover first opens, so a long list does not
+     carry the whole category picker on every row. */}}
+<details class="b-txmem b-txcat" id="txcat-{{ .Layout }}-{{ .ID }}"{{ if .OOB }} hx-swap-oob="true"{{ end }}
+         hx-get="/transactions/{{ .ID }}/category?layout={{ .Layout }}" hx-trigger="toggle once"
+         hx-target="find .b-txcat-body" hx-swap="innerHTML">
+    <summary class="b-txmem-toggle" title="Categorise" aria-label="Categorise this transaction">
+        <i class="bi bi-tag"></i>
     </summary>
-    <form class="b-tl-form b-txmem-form" hx-post="/transactions/{{ .ID }}/memory"
-          hx-target="#txmem-{{ .Layout }}-{{ .ID }}" hx-swap="outerHTML">
-        <input type="hidden" name="layout" value="{{ .Layout }}">
-        <div class="b-txmem-head">
-            {{ if .MemoryID }}In “{{ .MemoryTitle }}”. Move to:{{ else }}Add to memory{{ end }}
-        </div>
-        {{ $current := .MemoryID }}
-        {{ if .Options }}
-            <select class="form-select form-select-sm b-tl-target" name="memory" aria-label="Which memory">
-                <option value="">New memory&hellip;</option>
-                {{ range .Options }}
-                    {{ if ne .Id $current }}<option value="{{ .Id }}">{{ .Label }}</option>{{ end }}
-                {{ end }}
-            </select>
-        {{ end }}
-        <span class="b-tl-new">
-            <input class="form-control form-control-sm" name="title"
-                   placeholder="Name this memory" aria-label="Memory name">
-            <select class="form-select form-select-sm" name="kind" aria-label="What kind of memory">
-                {{ range .Kinds }}<option value="{{ .Key }}">{{ .Label }}</option>{{ end }}
-            </select>
-            <input class="form-control form-control-sm" name="note"
-                   placeholder="A note, if you like" aria-label="Note">
-        </span>
-        <button class="btn btn-sm btn-primary">Save</button>
-    </form>
+    <div class="b-tl-form b-txmem-form b-txcat-body"><span class="text-muted small">Loading…</span></div>
 </details>
 {{ end }}
 
-{{ define "transactions.memory.swap" }}{{ range . }}{{ template "transactions.memory" . }}{{ end }}{{ end }}
-
-{{/* Which category a transaction counts towards: whatever the rules say, a
-     group chosen by hand, or none at all, for the odd one a rule gets wrong.
-     Having no category is what keeps it out of the insights.
-     Drawn twice like the memory control, for the same reason. */}}
-{{ define "transactions.category" }}
-<details class="b-txmem" id="txcat-{{ .Layout }}-{{ .ID }}"{{ if .OOB }} hx-swap-oob="true"{{ end }}>
+{{/* Which spend group a transaction counts towards in the insights: whatever
+     the rules say, a group chosen by hand, or none at all, for the odd one a
+     rule gets wrong. Drawn twice like the memory control, for the same reason. */}}
+{{ define "transactions.insight" }}
+<details class="b-txmem" id="txins-{{ .Layout }}-{{ .ID }}"{{ if .OOB }} hx-swap-oob="true"{{ end }}>
     {{ $state := "" }}
     {{ if .Excluded }}{{ $state = "none" }}{{ else if .Assigned }}{{ $state = .Assigned }}{{ end }}
     <summary class="b-txmem-toggle{{ if or .Assigned .Excluded }} b-txmem-in{{ end }}"
-             title="{{ if .Excluded }}No category, chosen by you{{ else if .Assigned }}Counted in {{ .Insight }}, chosen by you{{ else if .Insight }}Counted in {{ .Insight }} automatically{{ else }}Add to a category{{ end }}"
-             aria-label="{{ if .Excluded }}No category. Change category{{ else if .Insight }}Counted in {{ .Insight }}. Change category{{ else }}Add to a category{{ end }}">
-        <i class="bi {{ if .Excluded }}bi-tag{{ else if .Assigned }}bi-tag-fill{{ else if .Insight }}bi-pie-chart-fill{{ else }}bi-tag{{ end }}"></i>
+             title="{{ if .Excluded }}No spend group, chosen by you{{ else if .Assigned }}Counted in {{ .Insight }}, chosen by you{{ else if .Insight }}Counted in {{ .Insight }} automatically{{ else }}Add to a spend group{{ end }}"
+             aria-label="{{ if .Excluded }}No spend group. Change spend group{{ else if .Insight }}Counted in {{ .Insight }}. Change spend group{{ else }}Add to a spend group{{ end }}">
+        <i class="bi {{ if or .Assigned .Insight }}bi-pie-chart-fill{{ else }}bi-pie-chart{{ end }}"></i>
     </summary>
-    <form class="b-tl-form b-txmem-form" hx-post="/transactions/{{ .ID }}/category"
-          hx-target="#txcat-{{ .Layout }}-{{ .ID }}" hx-swap="outerHTML">
+    <form class="b-tl-form b-txmem-form" hx-post="/transactions/{{ .ID }}/insight"
+          hx-target="#txins-{{ .Layout }}-{{ .ID }}" hx-swap="outerHTML">
         <input type="hidden" name="layout" value="{{ .Layout }}">
         <div class="b-txmem-head">Count this in</div>
-        <select class="form-select form-select-sm" name="group" aria-label="Which category">
+        <select class="form-select form-select-sm" name="group" aria-label="Which spend group">
             <option value=""{{ if eq $state "" }} selected{{ end }}>Automatic{{ if .Automatic }} ({{ .Automatic }}){{ else }} (none){{ end }}</option>
             {{ range .Groups }}
                 <option value="{{ .Key }}"{{ if eq .Key $state }} selected{{ end }}>{{ .Label }}</option>
             {{ end }}
-            <option value="none"{{ if eq $state "none" }} selected{{ end }}>No category</option>
+            <option value="none"{{ if eq $state "none" }} selected{{ end }}>None</option>
         </select>
         <button class="btn btn-sm btn-primary">Save</button>
     </form>
 </details>
 {{ end }}
 
-{{ define "transactions.category.swap" }}{{ range . }}{{ template "transactions.category" . }}{{ end }}{{ end }}
+{{ define "transactions.insight.swap" }}{{ range . }}{{ template "transactions.insight" . }}{{ end }}{{ end }}
+
+{{ define "transactions.category.form" }}
+<form class="d-flex flex-wrap gap-2" hx-post="/transactions/{{ .ID }}/category" hx-target="this" hx-swap="none">
+    <div class="b-txmem-head">
+        {{ if .Specific }}{{ .Broad }} / {{ .Specific }}<span class="fw-normal text-muted"> · from {{ .Source }}</span>{{ else }}Uncategorised{{ end }}
+    </div>
+    <select class="form-select form-select-sm" name="category" aria-label="File under">
+        <option value="">File under…</option>
+        {{ range .Groups }}
+        <optgroup label="{{ .Broad }}">
+            {{ range .Options }}<option value="{{ .Specific }}">{{ .Specific }}</option>{{ end }}
+        </optgroup>
+        {{ end }}
+    </select>
+    {{ if .RuleText }}
+    <div class="form-check small mb-0" style="flex: 1 1 100%;">
+        <input class="form-check-input" type="checkbox" id="txcat-like-{{ .Layout }}-{{ .ID }}" name="scope" value="like">
+        <label class="form-check-label" for="txcat-like-{{ .Layout }}-{{ .ID }}">
+            All transactions containing “{{ .RuleText }}”, as a rule
+        </label>
+    </div>
+    {{ end }}
+    <button class="btn btn-sm btn-primary">Save</button>
+    {{ if .Overridden }}
+    <button class="btn btn-sm btn-outline-secondary" name="clear" value="1">Undo my change</button>
+    {{ end }}
+    <a class="small ms-auto align-self-center" href="/settings#categories">Categories &amp; rules</a>
+</form>
+{{ end }}
+
+{{ define "transactions.category.updated" }}
+<div class="b-tx-meta" id="txcats-m-{{ .ID }}" hx-swap-oob="true">
+    {{ range .Categories }}<span class="badge-category">{{ . }}</span>{{ end }}
+</div>
+<span id="txcats-d-{{ .ID }}" hx-swap-oob="true">
+    {{ range .Categories }}<span class="badge-category">{{ . }}</span>{{ end }}
+</span>
+{{ range .Popovers }}{{ template "transactions.category" . }}{{ end }}
+{{ end }}
+
+{{ define "transactions.memory.swap" }}
+{{ range .Controls }}{{ template "transactions.memory" . }}{{ end }}
+{{ if .Bar }}{{ template "transactions.groupbar" (dict "Options" .Options "OOB" true) }}{{ end }}
+{{ end }}
+
+{{/* The selection bar's fields, redrawn after it is used so the memory just
+     made can be picked next time. The form itself stays put, so the ticks
+     that belong to it are not orphaned. */}}
+{{ define "transactions.groupbar" }}
+<span id="tx-group-fields" class="b-tl-new-wrap"{{ if .OOB }} hx-swap-oob="true"{{ end }}>
+    {{ template "transactions.memory.pick" . }}
+    <button type="button" class="btn btn-sm btn-outline-secondary" hx-delete="/transactions/memory"
+            title="Take the ticked transactions out of their memories">
+        <i class="bi bi-bookmark-x"></i> Remove
+    </button>
+</span>
+{{ end }}

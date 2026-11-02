@@ -269,7 +269,7 @@ func timelineSpend(tx models.Transaction) bool {
 		return false
 	}
 	switch tx.Type {
-	case "TRANSFER", "ATM", "INTEREST", "LOAN":
+	case "TRANSFER", models.TypeCountedTransfer, "ATM", "INTEREST", "LOAN":
 		return false
 	}
 	return true
