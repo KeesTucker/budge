@@ -6,18 +6,17 @@
     </div>
 
     <!-- Akahu -->
-    <div class="b-card b-card-pad mb-3">
+    <div class="b-card b-card-pad mb-3 b-accent-slate">
         <div class="b-card-head">
-            <div>
-                <h3 class="b-card-title">
-                    <img src="{{ asset "/static/akahu.svg" }}" class="rounded-circle me-1" alt=""
-                         style="height: 1em; margin-top: -0.2em">
-                    Akahu
-                </h3>
-                <p class="b-card-sub">
-                    New Zealand's open finance platform, and where transaction data comes
-                    from. <a href="https://www.akahu.nz/consumer">More about Akahu</a>.
-                </p>
+            <div class="d-flex align-items-center gap-2">
+                <span class="b-chip"><img src="{{ asset "/static/akahu.svg" }}" alt=""></span>
+                <div>
+                    <h3 class="b-card-title">Akahu</h3>
+                    <p class="b-card-sub">
+                        New Zealand's open finance platform, and where transaction data comes
+                        from. <a href="https://www.akahu.nz/consumer">More about Akahu</a>.
+                    </p>
+                </div>
             </div>
         </div>
 
@@ -25,7 +24,7 @@
             <div class="row g-2">
                 <div class="col-12 col-md-6">
                     <label class="b-field-label" for="akahuAppToken">App token</label>
-                    <div class="input-group">
+                    <div class="input-group input-group-sm">
                         <input class="form-control" id="akahuAppToken" name="akahuAppToken"
                                value="{{ .akahuAppToken }}" type="password" autocomplete="off">
                         <span class="input-group-text">
@@ -37,7 +36,7 @@
 
                 <div class="col-12 col-md-6">
                     <label class="b-field-label" for="akahuUserToken">User token</label>
-                    <div class="input-group">
+                    <div class="input-group input-group-sm">
                         <input class="form-control" id="akahuUserToken" name="akahuUserToken"
                                value="{{ .akahuUserToken }}" type="password" autocomplete="off">
                         <span class="input-group-text">
@@ -48,7 +47,7 @@
                 </div>
 
                 <div class="col-12 d-flex align-items-center flex-wrap gap-2 mt-2">
-                    <button class="btn btn-outline-secondary" hx-post="/integrations/akahu/save"
+                    <button class="btn btn-outline-secondary btn-sm" hx-post="/integrations/akahu/save"
                             hx-disabled-elt="this" hx-swap="none">
                         Save tokens
                     </button>
@@ -62,11 +61,11 @@
     <!-- What runs by itself -->
     <div id="schedule">{{ template "settings.schedule" .schedule }}</div>
 
+    <!-- Categories, and the rules that file transactions under them -->
+    <div id="categories">{{ template "settings.categories" .categories }}</div>
+
     <!-- Connected accounts -->
     {{ template "settings.accounts" . }}
-
-    <!-- What puts a transfer or merchant in an insight -->
-    {{ template "settings.spend" .spendRules }}
 
     <!-- Backup. Moving to another instance takes what was set up by hand;
          synced data comes back from Akahu on the first sync there. -->
@@ -77,38 +76,44 @@
                 <div>
                     <h3 class="b-card-title">Backup</h3>
                     <p class="b-card-sub">
-                        Memories, hidden purchases, assets, budget and schedule, for moving to
+                        Memories, hidden purchases, assets, budget, category rules and schedule, for moving to
                         another instance. Accounts and transactions come back from Akahu.
                     </p>
                 </div>
             </div>
         </div>
 
-        <div class="b-sched">
-            <div class="fw-semibold">Export</div>
-            <!-- A plain form: the response is a file to save, not a page to swap. -->
-            <p class="b-card-sub mb-2">
-                Akahu tokens are not included, so the file is safe to keep. Enter them again on
-                the new instance, then sync.
-            </p>
-            <form action="/settings/backup" method="get">
-                <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i>Download</button>
-            </form>
-        </div>
-
-        <div class="b-sched">
-            <div class="fw-semibold">Import</div>
-            <p class="b-card-sub mb-2">
-                Adds a backup to what is here. Anything in both is replaced by the backup's
-                copy; nothing else is removed.
-            </p>
-            <form hx-post="/settings/backup" hx-encoding="multipart/form-data" hx-target="#main"
-                  hx-confirm="Import this backup into this instance?"
-                  class="d-flex flex-wrap align-items-center gap-2">
-                <input class="form-control form-control-sm w-auto" type="file" name="backup"
-                       accept="application/json,.json" required aria-label="Backup file">
-                <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-upload"></i>Import</button>
-            </form>
+        <!-- Side by side once there is room, the way the schedule's options sit. -->
+        <div class="row g-3">
+            <div class="col-12 col-md-6">
+                <div class="b-sched">
+                    <div class="fw-semibold">Export</div>
+                    <!-- A plain form: the response is a file to save, not a page to swap. -->
+                    <p class="b-card-sub mb-2">
+                        Akahu tokens are not included, so the file is safe to keep. Enter them again on
+                        the new instance, then sync.
+                    </p>
+                    <form action="/settings/backup" method="get">
+                        <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i>Download</button>
+                    </form>
+                </div>
+            </div>
+            <div class="col-12 col-md-6">
+                <div class="b-sched">
+                    <div class="fw-semibold">Import</div>
+                    <p class="b-card-sub mb-2">
+                        Adds a backup to what is here. Anything in both is replaced by the backup's
+                        copy; nothing else is removed.
+                    </p>
+                    <form hx-post="/settings/backup" hx-encoding="multipart/form-data" hx-target="#main"
+                          hx-confirm="Import this backup into this instance?"
+                          class="d-flex flex-wrap align-items-center gap-2">
+                        <input class="form-control form-control-sm w-auto" type="file" name="backup"
+                               accept="application/json,.json" required aria-label="Backup file">
+                        <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-upload"></i>Import</button>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -149,14 +154,14 @@
      {{ if .Running }}hx-get="/integrations/akahu/sync?started={{ .StartedKey }}"
      hx-trigger="every 1s" hx-swap="outerHTML" hx-target="this"{{ end }}>
     {{ if .Running }}
-        <button type="button" class="btn btn-primary htmx-request" disabled>
+        <button type="button" class="btn btn-primary btn-sm htmx-request" disabled>
             <i class="bi bi-arrow-repeat"></i> Syncing&hellip;
         </button>
         <span class="b-delta-note ms-auto">
             {{ if .Fetched }}Fetched {{ .Fetched }} transactions&hellip;{{ else }}Contacting Akahu&hellip;{{ end }}
         </span>
     {{ else }}
-        <button type="button" class="btn btn-primary" hx-post="/integrations/akahu/sync"
+        <button type="button" class="btn btn-primary btn-sm" hx-post="/integrations/akahu/sync"
                 hx-target="#akahu-sync" hx-swap="outerHTML" hx-disabled-elt="this">
             <i class="bi bi-arrow-repeat"></i> Sync now
         </button>
@@ -176,15 +181,307 @@
 </div>
 {{ end }}
 
-{{ define "settings.schedule" }}
-<div class="b-card b-card-pad mb-3" id="schedule">
+{{/* Every category with the rules that file into it, and every action
+     answers with the whole card, so counts, pickers and the order rules are
+     tried in always agree. */}}
+{{ define "settings.categories" }}
+{{ if .Error }}
+<div class="alert alert-warning py-2 small mb-3" role="alert">{{ .Error }}</div>
+{{ end }}
+
+<div class="b-card b-card-pad mb-3 b-accent-clay">
     <div class="b-card-head">
-        <div>
-            <h3 class="b-card-title"><i class="bi bi-clock-history me-2"></i>Run on a schedule</h3>
-            <p class="b-card-sub">
+        <div class="d-flex align-items-center gap-2">
+            <span class="b-chip"><i class="bi bi-tags"></i></span>
+            <div>
+                <h3 class="b-card-title">Categories &amp; rules</h3>
+                <p class="b-card-sub">
+                Rules file transactions under a category when Akahu leaves them uncategorised or
+                gets them wrong, including ones already synced. Narrow rules win: a type first,
+                then a merchant or text, then a word in a bank reference. Between two of the same
+                kind, the category higher up wins. A category on Insights is a spend group there,
+                and being paid back with a matching reference takes from it. Deleting a rule puts
+                Akahu's category back.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <datalist id="rule-suggestions">
+        {{ range .Suggestions }}<option value="{{ . }}"></option>{{ end }}
+    </datalist>
+    <datalist id="category-broads">
+        {{ range .Broads }}<option value="{{ . }}"></option>{{ end }}
+    </datalist>
+
+    {{ $types := .Types }}
+    {{ $blank := .Blank }}
+    <div class="mb-3">
+    {{ range .Blocks }}
+    <details class="b-catblk border-bottom" id="{{ .DomID }}"{{ if .Open }} open{{ end }}>
+        <summary class="d-flex align-items-center gap-2 py-2">
+            <i class="bi bi-chevron-right b-catblk-caret text-muted small" aria-hidden="true"></i>
+            <span class="b-chip b-chip-sm{{ with .Group }} b-accent-{{ .Accent }}{{ end }}"><i class="bi {{ with .Group }}{{ .Icon }}{{ else }}bi-tag{{ end }}"></i></span>
+            <span class="min-width-0 flex-grow-1">
+                <span class="fw-semibold">{{ .Specific }}</span>
+                <span class="text-muted small ms-1">{{ .Broad }}{{ if not .Custom }} · Akahu's{{ end }}</span>
+                {{ with .Group }}<span class="badge-category ms-1">Insights: {{ .Label }}</span>{{ end }}
+            </span>
+            <span class="small text-muted text-nowrap">
+                {{ len .Rules }} rule{{ if ne (len .Rules) 1 }}s{{ end }} · {{ .Matches }} filed
+            </span>
+        </summary>
+
+        <div class="pb-3">
+            {{ if .Custom }}
+            <div class="d-flex flex-wrap align-items-end gap-2 mb-2">
+                {{ if .BuiltIn }}
+                <span class="b-card-sub">A built in group: it keeps its name and its place on Insights.</span>
+                {{ else }}
+                <form class="d-flex flex-wrap align-items-end gap-2" hx-put="/settings/categories/{{ .Key }}"
+                      hx-target="#categories" hx-swap="innerHTML">
+                    <div>
+                        <label class="b-field-label" for="{{ .DomID }}-broad">Group</label>
+                        <input class="form-control form-control-sm" id="{{ .DomID }}-broad" name="broad"
+                               list="category-broads" value="{{ .Broad }}" required>
+                    </div>
+                    <div>
+                        <label class="b-field-label" for="{{ .DomID }}-name">Name</label>
+                        <input class="form-control form-control-sm" id="{{ .DomID }}-name" name="specific"
+                               value="{{ .Specific }}" required>
+                    </div>
+                    <div class="form-check mb-1">
+                        <input class="form-check-input" type="checkbox" id="{{ .DomID }}-insights" name="insights" value="1"{{ if .Group }} checked{{ end }}>
+                        <label class="form-check-label" for="{{ .DomID }}-insights">On Insights</label>
+                    </div>
+                    <button class="btn btn-outline-secondary btn-sm">Save</button>
+                </form>
+                <button type="button" class="btn btn-outline-danger btn-sm"
+                        hx-delete="/settings/categories/{{ .Key }}"
+                        hx-target="#categories" hx-swap="innerHTML"
+                        hx-confirm="Delete {{ .Specific }} and its rules? What they filed goes back to Akahu's category.">
+                    Delete
+                </button>
+                {{ end }}
+                <span class="ms-auto d-flex gap-1">
+                    <button type="button" class="btn btn-outline-secondary btn-sm"{{ if .First }} disabled{{ end }}
+                            hx-post="/settings/categories/{{ .Key }}/move" hx-vals='{"direction": "up"}'
+                            hx-target="#categories" hx-swap="innerHTML"
+                            title="Move up" aria-label="Move {{ .Specific }} up"><i class="bi bi-arrow-up"></i></button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm"{{ if .Last }} disabled{{ end }}
+                            hx-post="/settings/categories/{{ .Key }}/move" hx-vals='{"direction": "down"}'
+                            hx-target="#categories" hx-swap="innerHTML"
+                            title="Move down" aria-label="Move {{ .Specific }} down"><i class="bi bi-arrow-down"></i></button>
+                </span>
+            </div>
+            {{ end }}
+
+            {{ if .Rules }}
+            <ul class="list-unstyled mb-2">
+                {{ range .Rules }}
+                <li>
+                    <details class="b-catblk">
+                        <summary class="d-flex align-items-start gap-2 py-1">
+                            <span class="min-width-0 flex-grow-1">
+                                {{ template "settings.rule.label" .CategoryRule }}
+                                <span class="{{ if .Matches }}text-muted{{ else }}text-warning{{ end }} small ms-1">
+                                    · {{ .Matches }} transaction{{ if ne .Matches 1 }}s{{ end }}
+                                </span>
+                            </span>
+                            <i class="bi bi-pencil text-muted small" title="Edit rule" aria-hidden="true"></i>
+                            <button type="button" class="btn btn-link btn-sm p-0 text-danger flex-shrink-0"
+                                    hx-delete="/settings/rules/{{ .ID }}"
+                                    hx-target="#categories" hx-swap="innerHTML"
+                                    title="Delete rule" aria-label="Delete the rule for {{ if .Contains }}{{ .Contains }}{{ else }}{{ .Type }}{{ end }}">
+                                <i class="bi bi-x-circle" aria-hidden="true"></i>
+                            </button>
+                        </summary>
+                        <form class="row g-2 align-items-end b-sched mb-2" hx-put="/settings/rules/{{ .ID }}"
+                              hx-target="#categories" hx-swap="innerHTML">
+                            {{ template "settings.rule.fields" (dict "P" (print "rule-" .ID) "Rule" .CategoryRule "Types" $types) }}
+                            <div class="col-12">
+                                <button class="btn btn-primary btn-sm">Save rule</button>
+                            </div>
+                        </form>
+                    </details>
+                </li>
+                {{ end }}
+            </ul>
+            {{ end }}
+
+            <form class="row g-2 align-items-end b-sched" hx-post="/settings/rules"
+                  hx-target="#categories" hx-swap="innerHTML">
+                <input type="hidden" name="category" value="{{ .Specific }}">
+                <div class="col-12 b-field-label mb-0">Add a rule</div>
+                {{ template "settings.rule.fields" (dict "P" (print "new-" .DomID) "Rule" $blank "Types" $types) }}
+                {{ template "settings.rule.preview.slot" }}
+                <div class="col-12">
+                    <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-plus-lg"></i>Add rule</button>
+                </div>
+            </form>
+        </div>
+    </details>
+    {{ end }}
+    </div>
+
+    <div class="row g-3">
+        <div class="col-12 col-lg-6">
+            <form class="b-sched h-100 row g-2 align-items-end mx-0" hx-post="/settings/categories"
+                  hx-target="#categories" hx-swap="innerHTML">
+                <div class="col-12 fw-semibold">Add a category</div>
+                <div class="col-6">
+                    <label class="b-field-label" for="category-broad">Group</label>
+                    <input class="form-control form-control-sm" id="category-broad" name="broad"
+                           list="category-broads" placeholder="Your groups">
+                </div>
+                <div class="col-6">
+                    <label class="b-field-label" for="category-specific">Name</label>
+                    <input class="form-control form-control-sm" id="category-specific" name="specific"
+                           placeholder="e.g. Rent" required>
+                </div>
+                <div class="col-12">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="category-insights" name="insights" value="1" checked>
+                        <label class="form-check-label" for="category-insights">
+                            On Insights, as a spend group
+                            <span class="d-block b-card-sub">Leave the group blank to put it under Your groups.</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-plus-lg"></i>Add category</button>
+                </div>
+            </form>
+        </div>
+        <div class="col-12 col-lg-6">
+            <form class="b-sched h-100 row g-2 align-items-end mx-0" hx-post="/settings/rules"
+                  hx-target="#categories" hx-swap="innerHTML">
+                <div class="col-12 fw-semibold">Add a rule for one of Akahu's categories</div>
+                <div class="col-12">
+                    <label class="b-field-label" for="rule-category">File under</label>
+                    <select class="form-select form-select-sm" id="rule-category" name="category" required>
+                        <option value="">Choose…</option>
+                        {{ range .Akahu }}
+                        <optgroup label="{{ .Broad }}">
+                            {{ range .Options }}<option value="{{ .Specific }}">{{ .Specific }}</option>{{ end }}
+                        </optgroup>
+                        {{ end }}
+                    </select>
+                </div>
+                {{ template "settings.rule.fields" (dict "P" "new-akahu" "Rule" $blank "Types" $types) }}
+                {{ template "settings.rule.preview.slot" }}
+                <div class="col-12">
+                    <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-plus-lg"></i>Add rule</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{/* What a rule looks for, in a line. */}}
+{{ define "settings.rule.label" }}
+{{- if eq .Match "type" -}}
+Every <span class="badge-category">{{ .Type }}</span> debit
+{{- else -}}
+{{ if eq .Match "merchant" }}Merchant{{ else if eq .Match "keyword" }}Reference word{{ else }}Contains{{ end }}
+<span class="font-monospace">“{{ .Contains }}”</span>
+{{- if .Type }} <span class="text-muted">and type is</span> <span class="badge-category">{{ .Type }}</span>{{ end }}
+{{- end }}
+{{- if .IncludeTransfers }} <span class="badge-category" title="Counts money leaving by transfer as spending">incl. transfers</span>{{ end }}
+{{ end }}
+
+{{/* A rule's fields, for adding or editing one. P keeps the ids apart, since
+     every category draws its own form. */}}
+{{ define "settings.rule.fields" }}
+{{ $r := .Rule }}
+<div class="col-12 col-md-4">
+    <label class="b-field-label" for="{{ .P }}-match">Match</label>
+    <select class="form-select form-select-sm" id="{{ .P }}-match" name="match">
+        <option value=""{{ if eq $r.Match "" }} selected{{ end }}>Description or merchant contains</option>
+        <option value="merchant"{{ if eq $r.Match "merchant" }} selected{{ end }}>Merchant, ignoring spacing</option>
+        <option value="keyword"{{ if eq $r.Match "keyword" }} selected{{ end }}>Word in a bank reference</option>
+        <option value="type"{{ if eq $r.Match "type" }} selected{{ end }}>Every debit of a type</option>
+    </select>
+</div>
+<div class="col-12 col-md-4">
+    <label class="b-field-label" for="{{ .P }}-contains">Text</label>
+    <input class="form-control form-control-sm" id="{{ .P }}-contains" name="contains"
+           value="{{ $r.Contains }}" list="rule-suggestions" autocomplete="off">
+</div>
+<div class="col-6 col-md-2">
+    <label class="b-field-label" for="{{ .P }}-type">Type</label>
+    <select class="form-select form-select-sm" id="{{ .P }}-type" name="type">
+        <option value="">Any</option>
+        {{ if $r.Type }}<option value="{{ $r.Type }}" selected>{{ $r.Type | fmtTitle }}</option>{{ end }}
+        {{ range .Types }}{{ if ne . $r.Type }}<option value="{{ . }}">{{ . | fmtTitle }}</option>{{ end }}{{ end }}
+    </select>
+</div>
+<div class="col-6 col-md-2">
+    <div class="form-check mb-1" title="For payments like a mortgage repayment into a loan account. Only the money leaving counts as spending; where it arrives stays a transfer.">
+        <input class="form-check-input" type="checkbox" id="{{ .P }}-transfers" name="include_transfers" value="1"{{ if $r.IncludeTransfers }} checked{{ end }}>
+        <label class="form-check-label small" for="{{ .P }}-transfers">Incl. transfers</label>
+    </div>
+</div>
+{{ end }}
+
+{{/* Shows what the rule in the surrounding form would catch, as it is typed.
+     hx-target is set because it would otherwise inherit the form's. */}}
+{{ define "settings.rule.preview.slot" }}
+<div class="col-12" aria-live="polite"
+     hx-get="/settings/rules/preview"
+     hx-trigger="input changed delay:300ms from:closest form, change from:closest form"
+     hx-include="closest form"
+     hx-target="this"
+     hx-swap="innerHTML"></div>
+{{ end }}
+
+{{ define "settings.rules.preview" }}
+{{ if .Ready }}
+<div class="b-sched small">
+    {{ if .Matches }}
+    <div class="mb-1">
+        Would file <span class="fw-semibold">{{ .Matches }} transaction{{ if ne .Matches 1 }}s{{ end }}</span>{{ if gt .Matches (len .Samples) }}, most recent:{{ else }}:{{ end }}
+    </div>
+    <ul class="list-unstyled mb-0">
+        {{ range .Samples }}
+        <li class="d-flex justify-content-between gap-2">
+            <span class="min-width-0 text-truncate">
+                <span class="text-muted me-1">{{ .Date.Format "2 Jan 2006" }}</span>{{ .Title }}
+                <span class="text-muted">· {{ if .Category }}{{ .Category }}{{ else }}uncategorised{{ end }}</span>
+            </span>
+            <span class="text-nowrap">{{ .Amount | fmtCurrency }}</span>
+        </li>
+        {{ end }}
+    </ul>
+    {{ else }}
+    <span class="text-warning">Matches nothing yet.</span>
+    {{ end }}
+    {{ if .Transfers }}
+    <div class="text-warning mt-1">
+        {{ .Transfers }} transfer{{ if ne .Transfers 1 }}s{{ end }} between your accounts also match{{ if eq .Transfers 1 }}es{{ end }}.
+        Tick “Include transfers” to count {{ if eq .Transfers 1 }}it{{ else }}them{{ end }} as spending.
+    </div>
+    {{ end }}
+    {{ if .Taken }}
+    <div class="text-muted mt-1">{{ .Taken }} more transaction{{ if ne .Taken 1 }}s{{ end }} match{{ if eq .Taken 1 }}es{{ end }}, but an earlier rule already files {{ if eq .Taken 1 }}it{{ else }}them{{ end }}.</div>
+    {{ end }}
+</div>
+{{ end }}
+{{ end }}
+
+{{ define "settings.schedule" }}
+<div class="b-card b-card-pad mb-3 b-accent-plum" id="schedule">
+    <div class="b-card-head">
+        <div class="d-flex align-items-center gap-2">
+            <span class="b-chip"><i class="bi bi-clock-history"></i></span>
+            <div>
+                <h3 class="b-card-title">Run on a schedule</h3>
+                <p class="b-card-sub">
                 Anything that fails while this is running is reported under the bell,
                 since there is nobody watching a background job.
-            </p>
+                </p>
+            </div>
         </div>
     </div>
 
@@ -202,7 +499,7 @@
                     <p class="b-card-sub mb-2">Pull balances and transactions from Akahu.</p>
 
                     <label class="b-field-label" for="akahu-interval">How often</label>
-                    <select class="form-select" id="akahu-interval" name="akahu_interval">
+                    <select class="form-select form-select-sm" id="akahu-interval" name="akahu_interval">
                         {{ $current := .Settings.AkahuEvery.Key }}
                         {{ range .AkahuIntervals }}
                             <option value="{{ .Key }}" {{ if eq .Key $current }}selected{{ end }}>{{ .Label }}</option>
@@ -237,7 +534,7 @@
                     </p>
 
                     <label class="b-field-label" for="assets-interval">How often</label>
-                    <select class="form-select" id="assets-interval" name="assets_interval">
+                    <select class="form-select form-select-sm" id="assets-interval" name="assets_interval">
                         {{ $current := .Settings.AssetsEvery.Key }}
                         {{ range .AssetIntervals }}
                             <option value="{{ .Key }}" {{ if eq .Key $current }}selected{{ end }}>{{ .Label }}</option>
@@ -260,7 +557,7 @@
             </div>
 
             <div class="col-12">
-                <button type="submit" class="btn btn-primary">Save schedule</button>
+                <button type="submit" class="btn btn-primary btn-sm">Save schedule</button>
             </div>
         </div>
     </form>
@@ -381,81 +678,4 @@
             </div>
         {{ end }}
     </div>
-{{ end }}
-
-{{/* The words and merchants each insight matches on besides Akahu's own
-     categories. Each group saves on its own and answers with this card. */}}
-{{ define "settings.spend" }}
-<div class="b-card b-card-pad mb-3" id="spend-rules">
-    <div class="b-card-head">
-        <div>
-            <h3 class="b-card-title"><i class="bi bi-tags me-2"></i>Insight matching</h3>
-            <p class="b-card-sub">
-                Akahu cannot tell what a payment to a person was for, so the reference is read
-                instead. A payment whose reference holds one of a group's keywords counts towards
-                it, and being paid back with one takes from it. Merchants count whatever Akahu files
-                them under, on a card or named in a reference. Capitals and spacing do not matter.
-            </p>
-        </div>
-    </div>
-
-    <div class="row g-3">
-        {{ range . }}
-        <div class="col-12 col-lg-6">
-            <form class="b-sched h-100" hx-post="/settings/spend-rules/{{ .Group.Key }}"
-                  hx-target="#spend-rules" hx-swap="outerHTML">
-                <div class="d-flex align-items-center gap-2 mb-2">
-                    <span class="b-chip b-chip-sm b-accent-{{ .Group.Accent }}"><i class="bi {{ .Group.Icon }}"></i></span>
-                    <span class="fw-semibold">{{ .Group.Label }}</span>
-                    {{ if .Own }}<span class="badge-category ms-auto">Your group</span>{{ else if .Custom }}<span class="badge-category ms-auto">Customised</span>{{ end }}
-                </div>
-
-                <label class="b-field-label" for="kw-{{ .Group.Key }}">Reference keywords</label>
-                <input class="form-control mb-1" id="kw-{{ .Group.Key }}" name="keywords"
-                       value="{{ .Keywords }}">
-                <p class="b-card-sub mb-2">Comma separated. A word matches the start of a word, so "grocer" catches "groceries".</p>
-
-                <label class="b-field-label" for="mc-{{ .Group.Key }}">Merchants</label>
-                <input class="form-control mb-1" id="mc-{{ .Group.Key }}" name="merchants"
-                       value="{{ .Merchants }}">
-                <p class="b-card-sub mb-2">Comma separated.</p>
-
-                <div class="d-flex gap-2">
-                    <button type="submit" class="btn btn-primary btn-sm">Save</button>
-                    {{ if .Own }}
-                        <button type="button" class="btn btn-outline-danger btn-sm"
-                                hx-delete="/settings/spend-groups/{{ .Group.Key }}"
-                                hx-target="#spend-rules" hx-swap="outerHTML"
-                                hx-confirm="Delete {{ .Group.Label }}? What it matched goes back to the other groups.">
-                            Delete group
-                        </button>
-                    {{ else if .Custom }}
-                        <button type="button" class="btn btn-outline-secondary btn-sm"
-                                hx-post="/settings/spend-rules/{{ .Group.Key }}/reset"
-                                hx-target="#spend-rules" hx-swap="outerHTML"
-                                hx-confirm="Put {{ .Group.Label }} back on the built in keywords and merchants?">
-                            Reset to defaults
-                        </button>
-                    {{ end }}
-                </div>
-            </form>
-        </div>
-        {{ end }}
-    </div>
-
-    <!-- A group of the owner's own: rent, lunches, the dog. -->
-    <form class="d-flex flex-wrap align-items-end gap-2 mt-3" hx-post="/settings/spend-groups"
-          hx-target="#spend-rules" hx-swap="outerHTML">
-        <div>
-            <label class="b-field-label" for="new-group">Add your own group</label>
-            <input class="form-control form-control-sm" id="new-group" name="label" required
-                   aria-describedby="new-group-help">
-        </div>
-        <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-plus-lg"></i>Add group</button>
-        <p class="b-card-sub w-100 mb-0" id="new-group-help">
-            Such as rent or lunches. It shows on the insights and budget pages, and takes what
-            it matches from the groups above.
-        </p>
-    </form>
-</div>
 {{ end }}

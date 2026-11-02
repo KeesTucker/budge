@@ -24,6 +24,11 @@ func newTestApp(t *testing.T) *Application {
 	store, err := database.NewStore()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
+	categories, err := store.GetCategorySettings()
+	require.NoError(t, err)
+	SetCategorySettings(categories)
+	store.OnCategories = SetCategorySettings
+	t.Cleanup(func() { categorySettings.Store(nil) })
 
 	tpl, err := template.New("").Funcs(templateFuncs()).ParseFS(web.Templates, "templates/*.gohtml")
 	require.NoError(t, err)
@@ -122,42 +127,42 @@ func TestGetBudgetSalaryDefaults(t *testing.T) {
 	assert.Zero(t, salary.Salary)
 }
 
-func TestTransactionSetCategory(t *testing.T) {
+func TestTransactionCategoryFilesIntoGroups(t *testing.T) {
 	app := newTestApp(t)
-	t.Cleanup(func() {
-		insightAssignments.Store(nil)
-		insightExclusions.Store(nil)
-	})
 
-	tx := referenced("TRANSFER", "", "", -40)
-	tx.Id = "trans_market"
+	tx := referenced("PAYMENT", "", "groceries", -2200)
+	tx.Id = "trans_bond"
 	require.NoError(t, app.store.CreateTransaction(tx))
 
-	choose := func(group string) {
+	group := func() (string, bool) {
 		t.Helper()
-		c, rec := postForm(t, app, url.Values{"group": {group}, "layout": {"d"}})
+		read, err := app.store.GetTransaction(tx.Id)
+		require.NoError(t, err)
+		return ClassifySpend(read)
+	}
+	post := func(values url.Values) {
+		t.Helper()
+		c, rec := postForm(t, app, values)
 		c.SetParamNames("id")
 		c.SetParamValues(tx.Id)
 		require.NoError(t, app.TransactionSetCategory(c))
 		assert.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	choose("groceries")
-	key, ok := ClassifySpend(tx)
-	assert.True(t, ok)
+	key, ok := group()
+	require.True(t, ok, "the built in keyword rule files it")
 	assert.Equal(t, "groceries", key)
 
-	choose(transactionExclude)
-	_, ok = ClassifySpend(tx)
-	assert.False(t, ok, "the same control leaves it out")
-	assert.Empty(t, BuildTransactionRow(tx).Assigned, "and forgets the hand-picked group")
+	post(url.Values{"akahu": {"1"}})
+	_, ok = group()
+	assert.False(t, ok, "kept on Akahu's category, no rule can claim it")
 
-	choose("petrol")
-	key, ok = ClassifySpend(tx)
-	assert.True(t, ok, "choosing a group counts it again")
+	post(url.Values{"category": {"Petrol"}})
+	key, ok = group()
+	assert.True(t, ok, "filed by hand under a group's category, it counts there")
 	assert.Equal(t, "petrol", key)
 
-	choose("")
-	_, ok = ClassifySpend(tx)
-	assert.False(t, ok, "automatic hands it back to the rules, which catch nothing")
+	post(url.Values{"clear": {"1"}})
+	key, _ = group()
+	assert.Equal(t, "groceries", key, "undoing hands it back to the rules")
 }

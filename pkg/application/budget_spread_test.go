@@ -96,24 +96,24 @@ func TestBudgetSetupSpreadsMonthlyBills(t *testing.T) {
 	bill.Category.Groups.PersonalFinance.Name = "Household"
 	require.NoError(t, app.store.CreateTransaction(bill))
 
-	actual := func() float64 {
+	actual := func() (float64, int) {
 		setup, err := app.buildSetupData()
 		require.NoError(t, err)
-		for _, group := range setup.Groups {
-			for _, row := range group.Rows {
-				if row.SubCategory == "Utilities" {
-					return row.ActualWeekly
-				}
+		for _, row := range setup.Rows {
+			if row.SubCategory == "Utilities" {
+				return row.ActualWeekly, row.WindowWeeks
 			}
 		}
 		t.Fatal("no utilities row")
-		return 0
+		return 0, 0
 	}
 
-	assert.InDelta(t, 75, actual(), 0.01, "unnamed, the whole bill is in the last four weeks")
+	unnamed, weeks := actual()
+	assert.InDelta(t, 300/float64(weeks), unnamed, 0.01, "unnamed, the whole bill is in the window")
 
 	require.NoError(t, app.store.SaveBudgetSpread(models.BudgetSpread{Monthly: []string{"mercury"}}))
-	assert.Less(t, actual(), 60.0, "named, only the part of its month so far counts")
+	named, _ := actual()
+	assert.Less(t, named, unnamed*0.8, "named, only the part of its month so far counts")
 }
 
 func TestDetectMonthly(t *testing.T) {

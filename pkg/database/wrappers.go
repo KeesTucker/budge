@@ -239,70 +239,6 @@ func (s *Store) SaveTimelinePreferences(prefs models.TimelinePreferences) error 
 	return Update[models.TimelinePreferences](s.db, prefs)
 }
 
-/* Spend rules */
-
-// GetSpendRules returns the owner's own spend group rules. Unset means every
-// group uses its built in rule.
-func (s *Store) GetSpendRules() (models.SpendRules, error) {
-	rules, err := Get[models.SpendRules](s.db, models.SpendRules{}.Key())
-	if err != nil {
-		return models.SpendRules{}, nil
-	}
-	return rules, nil
-}
-
-func (s *Store) SaveSpendRules(rules models.SpendRules) error {
-	return Update[models.SpendRules](s.db, rules)
-}
-
-// GetInsightExclusions returns the transactions left out of the insights.
-func (s *Store) GetInsightExclusions() (models.InsightExclusions, error) {
-	exclusions, err := Get[models.InsightExclusions](s.db, models.InsightExclusions{}.Key())
-	if err != nil {
-		return models.InsightExclusions{}, nil
-	}
-	return exclusions, nil
-}
-
-// SetInsightExclusion leaves a transaction out of the insights, or puts it
-// back, and returns the exclusions as they now stand.
-func (s *Store) SetInsightExclusion(id string, excluded bool) (models.InsightExclusions, error) {
-	exclusions, err := s.GetInsightExclusions()
-	if err != nil {
-		return exclusions, err
-	}
-	exclusions.TransactionIDs = slices.DeleteFunc(exclusions.TransactionIDs, func(t string) bool { return t == id })
-	if excluded {
-		exclusions.TransactionIDs = append(exclusions.TransactionIDs, id)
-	}
-	return exclusions, Update[models.InsightExclusions](s.db, exclusions)
-}
-
-// GetInsightAssignments returns the transactions put in a spend group by hand.
-func (s *Store) GetInsightAssignments() (models.InsightAssignments, error) {
-	assignments, err := Get[models.InsightAssignments](s.db, models.InsightAssignments{}.Key())
-	if err != nil || assignments.Groups == nil {
-		return models.InsightAssignments{Groups: map[string]string{}}, nil
-	}
-	return assignments, nil
-}
-
-// AssignInsight puts a transaction in a spend group by hand, or hands it back
-// to the rules when the group is empty, and returns the assignments as they
-// now stand.
-func (s *Store) AssignInsight(id, group string) (models.InsightAssignments, error) {
-	assignments, err := s.GetInsightAssignments()
-	if err != nil {
-		return assignments, err
-	}
-	if group == "" {
-		delete(assignments.Groups, id)
-	} else {
-		assignments.Groups[id] = group
-	}
-	return assignments, Update[models.InsightAssignments](s.db, assignments)
-}
-
 // GetBudgetSpread returns the payments the budget spreads over a month.
 func (s *Store) GetBudgetSpread() (models.BudgetSpread, error) {
 	spread, err := Get[models.BudgetSpread](s.db, models.BudgetSpread{}.Key())
@@ -424,18 +360,12 @@ func (s *Store) ExportBackup() (models.Backup, error) {
 		return backup, err
 	}
 	backup.RemovedAccounts = removed.Accounts
-	if rules, err := s.GetSpendRules(); err == nil && len(rules.Groups) > 0 {
-		backup.SpendRules = &rules
-	}
-	if exclusions, err := s.GetInsightExclusions(); err == nil {
-		backup.InsightExclusions = exclusions.TransactionIDs
-	}
-	if assignments, err := s.GetInsightAssignments(); err == nil && len(assignments.Groups) > 0 {
-		backup.InsightAssignments = assignments.Groups
-	}
 	if spread, err := s.GetBudgetSpread(); err == nil {
 		backup.BudgetMonthly = spread.Monthly
 		backup.BudgetNotMonthly = spread.Ignore
+	}
+	if categories, err := Get[models.CategorySettings](s.db, models.CategorySettings{}.Key()); err == nil {
+		backup.Categories = &categories
 	}
 	return backup, nil
 }
@@ -465,44 +395,6 @@ func (s *Store) ImportBackup(backup models.Backup) error {
 		}
 	}
 
-	// A group the backup has a rule for takes the backup's; the rest are kept.
-	rules, err := s.GetSpendRules()
-	if err != nil {
-		return err
-	}
-	if backup.SpendRules != nil {
-		if rules.Groups == nil {
-			rules.Groups = make(map[string]models.SpendRule)
-		}
-		for key, rule := range backup.SpendRules.Groups {
-			rules.Groups[key] = rule
-		}
-		// The owner's own groups too, by key, the backup's copy winning.
-		for _, group := range backup.SpendRules.Custom {
-			i := slices.IndexFunc(rules.Custom, func(g models.CustomSpendGroup) bool { return g.Key == group.Key })
-			if i >= 0 {
-				rules.Custom[i] = group
-			} else {
-				rules.Custom = append(rules.Custom, group)
-			}
-		}
-	}
-
-	exclusions, err := s.GetInsightExclusions()
-	if err != nil {
-		return err
-	}
-	exclusions.TransactionIDs = unionStrings(exclusions.TransactionIDs, backup.InsightExclusions)
-
-	// A transaction the backup assigns takes the backup's group.
-	assignments, err := s.GetInsightAssignments()
-	if err != nil {
-		return err
-	}
-	for id, group := range backup.InsightAssignments {
-		assignments.Groups[id] = group
-	}
-
 	spread, err := s.GetBudgetSpread()
 	if err != nil {
 		return err
@@ -521,6 +413,28 @@ func (s *Store) ImportBackup(backup models.Backup) error {
 		schedule = append(schedule, next)
 	}
 
+	// A backup from before spend groups moved onto rules carries them the old
+	// way, and is converted as the migration converted this instance.
+	legacy := legacySpend{exclusions: backup.InsightExclusions, assignments: backup.InsightAssignments}
+	if backup.SpendRules != nil {
+		legacy.rules = *backup.SpendRules
+	}
+	var categories []models.CategorySettings
+	if backup.Categories != nil || !legacy.empty() {
+		current, err := s.GetCategorySettings()
+		if err != nil {
+			return err
+		}
+		if backup.Categories != nil {
+			current = mergeCategorySettings(current, *backup.Categories)
+		}
+		if !legacy.empty() {
+			current = convertSpendGroups(current, legacy)
+		}
+		categories = append(categories, current)
+	}
+
+	defer s.categoriesChanged()
 	return s.db.Update(func(tx *bolt.Tx) error {
 		return errors.Join(
 			putAll(tx, backup.Memories),
@@ -530,12 +444,50 @@ func (s *Store) ImportBackup(backup models.Backup) error {
 			putAll(tx, salary),
 			putAll(tx, schedule),
 			putAll(tx, []models.RemovedAccounts{removed}),
-			putAll(tx, []models.SpendRules{rules}),
-			putAll(tx, []models.InsightExclusions{exclusions}),
-			putAll(tx, []models.InsightAssignments{assignments}),
 			putAll(tx, []models.BudgetSpread{spread}),
+			putAll(tx, categories),
 		)
 	})
+}
+
+// mergeCategorySettings folds imported categories and rules into the current
+// ones the way the rest of an import merges: same ID overwrites in place,
+// anything new is added after what is already here, keeping rule order.
+func mergeCategorySettings(current, imported models.CategorySettings) models.CategorySettings {
+	categories := make(map[string]int, len(current.Categories))
+	for i, category := range current.Categories {
+		categories[category.ID] = i
+	}
+	for _, category := range imported.Categories {
+		if i, ok := categories[category.ID]; ok {
+			current.Categories[i] = category
+		} else {
+			current.Categories = append(current.Categories, category)
+		}
+	}
+	rules := make(map[string]int, len(current.Rules))
+	for i, rule := range current.Rules {
+		rules[rule.ID] = i
+	}
+	for _, rule := range imported.Rules {
+		if i, ok := rules[rule.ID]; ok {
+			current.Rules[i] = rule
+		} else {
+			current.Rules = append(current.Rules, rule)
+		}
+	}
+	overrides := make(map[string]int, len(current.Overrides))
+	for i, o := range current.Overrides {
+		overrides[o.TransactionID] = i
+	}
+	for _, o := range imported.Overrides {
+		if i, ok := overrides[o.TransactionID]; ok {
+			current.Overrides[i] = o
+		} else {
+			current.Overrides = append(current.Overrides, o)
+		}
+	}
+	return current
 }
 
 // unionStrings combines two lists, keeping the order of the first and adding
@@ -583,24 +535,59 @@ func (s *Store) CountTransactions() (int, error) {
 func (s *Store) CreateTransaction(transaction models.Transaction) error {
 	return Create[models.Transaction](s.db, transaction)
 }
-func (s *Store) GetTransaction(id string) (models.Transaction, error) {
-	return Get[models.Transaction](s.db, []byte(id))
+
+// Category rules are applied as transactions are read rather than written
+// back, so they reach every transaction already synced and removing one
+// restores Akahu's category without a resync.
+
+func (s *Store) categorised(txs []models.Transaction, err error) ([]models.Transaction, error) {
+	if err != nil {
+		return nil, err
+	}
+	settings, err := s.GetCategorySettings()
+	if err != nil {
+		return nil, err
+	}
+	settings.Apply(txs)
+	return txs, nil
 }
+
+// GetTransaction reads one transaction, categorised like every other read.
+func (s *Store) GetTransaction(id string) (models.Transaction, error) {
+	tx, err := Get[models.Transaction](s.db, []byte(id))
+	if err != nil {
+		return tx, err
+	}
+	txs, err := s.categorised([]models.Transaction{tx}, nil)
+	if err != nil {
+		return tx, err
+	}
+	return txs[0], nil
+}
+
 func (s *Store) ReadTransactions() ([]models.Transaction, error) {
-	return Read[models.Transaction](s.db)
+	return s.categorised(Read[models.Transaction](s.db))
 }
 func (s *Store) ReadTransactionsByAccount(account string) ([]models.Transaction, error) {
-	return ReadFilter[models.Transaction](s.db, func(transaction models.Transaction) bool {
+	return s.categorised(ReadFilter[models.Transaction](s.db, func(transaction models.Transaction) bool {
 		return transaction.Account == account
-	})
+	}))
 }
 func (s *Store) ReadTransactionsByDate(start time.Time, end time.Time) ([]models.Transaction, error) {
-	return ReadFilter[models.Transaction](s.db, func(transaction models.Transaction) bool {
+	return s.categorised(ReadFilter[models.Transaction](s.db, func(transaction models.Transaction) bool {
 		return transaction.Date.After(start) && transaction.Date.Before(end)
-	})
+	}))
 }
 func (s *Store) SearchTransactions(search string, account string) ([]models.Transaction, error) {
-	return ReadFilter[models.Transaction](s.db, func(transaction models.Transaction) bool {
+	settings, err := s.GetCategorySettings()
+	if err != nil {
+		return nil, err
+	}
+	return s.categorised(ReadFilter[models.Transaction](s.db, func(transaction models.Transaction) bool {
+		// Searching by a rule's category should find what it filed.
+		one := []models.Transaction{transaction}
+		settings.Apply(one)
+		transaction = one[0]
 
 		accountMatch := account == "" || transaction.Account == account
 
@@ -621,7 +608,7 @@ func (s *Store) SearchTransactions(search string, account string) ([]models.Tran
 		searchMatch := strings.Contains(haystack, needle)
 
 		return accountMatch && searchMatch
-	})
+	}))
 }
 
 /* Budget Items */
@@ -636,41 +623,6 @@ func (s *Store) ReadBudgetItems() ([]models.BudgetItem, error) {
 	return Read[models.BudgetItem](s.db)
 }
 func (s *Store) UpdateBudgetItem(item models.BudgetItem) error {
-	return Update[models.BudgetItem](s.db, item)
-}
-func (s *Store) AddBudgetSubItem(itemID string, sub models.BudgetSubItem) error {
-	item, err := Get[models.BudgetItem](s.db, []byte(itemID))
-	if err != nil {
-		return err
-	}
-	item.SubItems = append(item.SubItems, sub)
-	return Update[models.BudgetItem](s.db, item)
-}
-func (s *Store) UpdateBudgetSubItem(itemID string, sub models.BudgetSubItem) error {
-	item, err := Get[models.BudgetItem](s.db, []byte(itemID))
-	if err != nil {
-		return err
-	}
-	for i, si := range item.SubItems {
-		if si.ID == sub.ID {
-			item.SubItems[i] = sub
-			break
-		}
-	}
-	return Update[models.BudgetItem](s.db, item)
-}
-func (s *Store) DeleteBudgetSubItem(itemID, subID string) error {
-	item, err := Get[models.BudgetItem](s.db, []byte(itemID))
-	if err != nil {
-		return err
-	}
-	filtered := item.SubItems[:0]
-	for _, si := range item.SubItems {
-		if si.ID != subID {
-			filtered = append(filtered, si)
-		}
-	}
-	item.SubItems = filtered
 	return Update[models.BudgetItem](s.db, item)
 }
 
@@ -758,4 +710,33 @@ func (s *Store) DeleteSynced() error {
 		_, transactionErr := tx.CreateBucket(buckets.TransactionBucket)
 		return errors.Join(accountErr, merchantErr, transactionErr)
 	})
+}
+
+/* Categories */
+
+func (s *Store) GetCategorySettings() (models.CategorySettings, error) {
+	// Like the salary, an unsaved document reads back as an error; it simply
+	// means no categories or rules have been set up yet.
+	settings, err := Get[models.CategorySettings](s.db, models.CategorySettings{}.Key())
+	if err != nil {
+		return models.CategorySettings{}, nil
+	}
+	return settings, nil
+}
+
+func (s *Store) SaveCategorySettings(settings models.CategorySettings) error {
+	if err := Update[models.CategorySettings](s.db, settings); err != nil {
+		return err
+	}
+	s.categoriesChanged()
+	return nil
+}
+
+func (s *Store) categoriesChanged() {
+	if s.OnCategories == nil {
+		return
+	}
+	if settings, err := s.GetCategorySettings(); err == nil {
+		s.OnCategories(settings)
+	}
 }

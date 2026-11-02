@@ -179,6 +179,10 @@ func (r RemovedAccounts) Restoring() bool {
 	return false
 }
 
+// SpendRule, SpendRules, CustomSpendGroup, InsightExclusions and
+// InsightAssignments are how spend groups were kept before they moved onto
+// category rules. Only the migration and old backups read them now.
+
 // SpendRule is what puts a transaction in a spend group besides Akahu's
 // category: words in a bank transfer's reference, and merchants named in a
 // card payment or a reference.

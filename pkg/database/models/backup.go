@@ -30,15 +30,11 @@ type Backup struct {
 	// new instance does not bring them back.
 	RemovedAccounts []RemovedAccount `json:"removed_accounts,omitempty"`
 
-	// SpendRules are the keywords and merchants the owner gave the insights.
-	SpendRules *SpendRules `json:"spend_rules,omitempty"`
-
-	// InsightExclusions are transactions left out of the insights, by Akahu's
-	// own IDs, so they reattach when the transactions sync back.
-	InsightExclusions []string `json:"insight_exclusions,omitempty"`
-
-	// InsightAssignments are transactions put in a spend group by hand, by
-	// Akahu's own IDs for the same reason.
+	// SpendRules, InsightExclusions and InsightAssignments are how backups
+	// carried spend groups before they moved onto category rules. They are
+	// only read, so an old backup still imports; new ones carry Categories.
+	SpendRules         *SpendRules       `json:"spend_rules,omitempty"`
+	InsightExclusions  []string          `json:"insight_exclusions,omitempty"`
 	InsightAssignments map[string]string `json:"insight_assignments,omitempty"`
 
 	// BudgetMonthly are the payments the budget spreads over a month.
@@ -47,6 +43,8 @@ type Backup struct {
 	// BudgetNotMonthly are the payments the budget never spreads, however
 	// regular they look.
 	BudgetNotMonthly []string `json:"budget_not_monthly,omitempty"`
+
+	Categories *CategorySettings `json:"categories,omitempty"`
 }
 
 // BackupCounts says what a backup holds, for telling the owner what an import
@@ -55,8 +53,13 @@ type BackupCounts struct {
 	Memories    int
 	Assets      int
 	BudgetItems int
+	Rules       int
 }
 
 func (b Backup) Counts() BackupCounts {
-	return BackupCounts{Memories: len(b.Memories), Assets: len(b.Assets), BudgetItems: len(b.BudgetItems)}
+	counts := BackupCounts{Memories: len(b.Memories), Assets: len(b.Assets), BudgetItems: len(b.BudgetItems)}
+	if b.Categories != nil {
+		counts.Rules = len(b.Categories.Rules)
+	}
+	return counts
 }

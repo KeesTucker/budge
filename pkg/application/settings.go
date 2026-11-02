@@ -2,8 +2,6 @@ package application
 
 import (
 	"net/http"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/TheQueenIsDead/budge/pkg/database/models"
@@ -63,11 +61,17 @@ func (app *Application) Settings(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	categories, err := app.buildCategoriesView("")
+	if err != nil {
+		app.Toast(c, "Error", "Could not read category rules.")
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
 	return c.Render(http.StatusOK, "settings", map[string]interface{}{
 		"accounts":       accounts,
 		"removed":        removed.Accounts,
 		"restoring":      removed.Restoring(),
-		"spendRules":     spendRuleViews(),
+		"categories":     categories,
 		"akahuAppToken":  akahuConfig.AppToken,
 		"akahuUserToken": akahuConfig.UserToken,
 		"sync":           app.syncStatus(),
@@ -192,156 +196,6 @@ func (app *Application) SettingsTrackAccount(c echo.Context) error {
 	return app.renderSettingsAccounts(c)
 }
 
-// SpendRuleView is one spend group's rule as the settings page edits it.
-type SpendRuleView struct {
-	Group     SpendGroup
-	Keywords  string
-	Merchants string
-	Custom    bool
-
-	// Own marks a group the owner made, which is deleted rather than reset.
-	Own bool
-}
-
-func spendRuleViews() []SpendRuleView {
-	groups := SpendGroups()
-	views := make([]SpendRuleView, len(groups))
-	for i, group := range groups {
-		rule, custom := GroupRule(group)
-		views[i] = SpendRuleView{
-			Group:     group,
-			Keywords:  strings.Join(rule.Keywords, ", "),
-			Merchants: strings.Join(rule.Merchants, ", "),
-			Custom:    custom,
-			Own:       strings.HasPrefix(group.Key, customGroupPrefix),
-		}
-	}
-	return views
-}
-
-// parseRuleList reads a comma or line separated list as typed into a field,
-// dropping blanks and repeats however they are cased.
-func parseRuleList(text string) []string {
-	seen := make(map[string]bool)
-	list := []string{}
-	for _, item := range strings.FieldsFunc(text, func(r rune) bool { return r == ',' || r == '\n' }) {
-		item = strings.Join(strings.Fields(item), " ")
-		if item == "" || seen[strings.ToLower(item)] {
-			continue
-		}
-		seen[strings.ToLower(item)] = true
-		list = append(list, item)
-	}
-	return list
-}
-
-// saveSpendRule stores a group's rule, or forgets it when rule is nil so the
-// group falls back to its built in one, and puts it into effect at once.
-func (app *Application) saveSpendRule(c echo.Context, rule *models.SpendRule) error {
-	group, ok := SpendGroupByKey(c.Param("key"))
-	if !ok {
-		return echo.NewHTTPError(http.StatusNotFound, "no such spend group")
-	}
-	rules, err := app.store.GetSpendRules()
-	if err != nil {
-		return err
-	}
-	if rules.Groups == nil {
-		rules.Groups = make(map[string]models.SpendRule)
-	}
-	switch {
-	case strings.HasPrefix(group.Key, customGroupPrefix):
-		// The owner's own group holds its rule itself, and has no built in
-		// one to fall back to.
-		for i := range rules.Custom {
-			if rules.Custom[i].Key == group.Key && rule != nil {
-				rules.Custom[i].SpendRule = *rule
-			}
-		}
-	case rule == nil:
-		delete(rules.Groups, group.Key)
-	default:
-		rules.Groups[group.Key] = *rule
-	}
-	if err := app.store.SaveSpendRules(rules); err != nil {
-		app.Toast(c, "Error", "Could not save the insight rules.")
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	SetSpendRules(rules)
-	return nil
-}
-
-// SettingsSaveSpendRule stores the keywords and merchants a spend group
-// matches on.
-func (app *Application) SettingsSaveSpendRule(c echo.Context) error {
-	rule := models.SpendRule{
-		Keywords:  parseRuleList(c.FormValue("keywords")),
-		Merchants: parseRuleList(c.FormValue("merchants")),
-	}
-	if err := app.saveSpendRule(c, &rule); err != nil {
-		return err
-	}
-	app.Toast(c, "Success", "Insight rules saved.")
-	return c.Render(http.StatusOK, "settings.spend", spendRuleViews())
-}
-
-// SettingsResetSpendRule puts a spend group back on its built in rule.
-func (app *Application) SettingsResetSpendRule(c echo.Context) error {
-	if err := app.saveSpendRule(c, nil); err != nil {
-		return err
-	}
-	app.Toast(c, "Success", "Insight rules reset.")
-	return c.Render(http.StatusOK, "settings.spend", spendRuleViews())
-}
-
-// customGroupPrefix starts the key of every group the owner makes.
-const customGroupPrefix = "custom-"
-
-// SettingsAddSpendGroup makes a new group of the owner's own, empty until its
-// keywords and merchants are filled in.
-func (app *Application) SettingsAddSpendGroup(c echo.Context) error {
-	label := strings.Join(strings.Fields(c.FormValue("label")), " ")
-	if label == "" {
-		app.Toast(c, "Error", "Give the group a name.")
-		return c.Render(http.StatusOK, "settings.spend", spendRuleViews())
-	}
-	key := customGroupPrefix + lettersOnly(label)
-	if key == customGroupPrefix {
-		key = customGroupPrefix + newID()
-	}
-	if _, taken := SpendGroupByKey(key); taken {
-		app.Toast(c, "Error", "There is already a group called "+label+".")
-		return c.Render(http.StatusOK, "settings.spend", spendRuleViews())
-	}
-
-	rules, err := app.store.GetSpendRules()
-	if err != nil {
-		return err
-	}
-	rules.Custom = append(rules.Custom, models.CustomSpendGroup{Key: key, Label: label})
-	if err := app.store.SaveSpendRules(rules); err != nil {
-		app.Toast(c, "Error", "Could not add the group.")
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	SetSpendRules(rules)
-	app.Toast(c, "Success", label+" added. Give it keywords or merchants to fill it.")
-	return c.Render(http.StatusOK, "settings.spend", spendRuleViews())
-}
-
-// SettingsDeleteSpendGroup removes one of the owner's own groups. What it
-// matched falls back to the built in groups, or to nothing.
-func (app *Application) SettingsDeleteSpendGroup(c echo.Context) error {
-	key := c.Param("key")
-	rules, err := app.store.GetSpendRules()
-	if err != nil {
-		return err
-	}
-	rules.Custom = slices.DeleteFunc(rules.Custom, func(g models.CustomSpendGroup) bool { return g.Key == key })
-	if err := app.store.SaveSpendRules(rules); err != nil {
-		app.Toast(c, "Error", "Could not delete the group.")
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	SetSpendRules(rules)
-	app.Toast(c, "Success", "Group deleted.")
-	return c.Render(http.StatusOK, "settings.spend", spendRuleViews())
-}
+// groupRulePrefix starts the ID of every rule the migration made for a spend
+// group.
+const groupRulePrefix = "group-"

@@ -42,10 +42,32 @@
             <div class="b-stat b-accent-clay">
                 <div class="b-stat-label"><span>{{ .Summary.Type.PriceLabel }}</span><i class="bi bi-receipt"></i></div>
                 <div class="b-stat-value">{{ .Summary.Asset.PurchasePrice | fmtCurrency }}</div>
-                <div class="b-delta-note">
-                    {{ if not .Summary.Asset.PurchaseDate.IsZero }}
-                        {{ .Summary.Asset.PurchaseDate.Format "Jan 2006" }}
-                    {{ end }}
+                <div class="d-flex align-items-center justify-content-between gap-2">
+                    <div class="b-delta-note">
+                        {{ if not .Summary.Asset.PurchaseDate.IsZero }}
+                            {{ .Summary.Asset.PurchaseDate.Format "Jan 2006" }}
+                        {{ end }}
+                    </div>
+                    <details class="b-txmem">
+                        <summary class="b-txmem-toggle" title="Edit what was paid" aria-label="Edit the purchase price and date">
+                            <i class="bi bi-pencil"></i>
+                        </summary>
+                        <form class="b-tl-form b-txmem-form"
+                              hx-post="/portfolio/assets/{{ .Summary.Asset.Id }}/purchase"
+                              hx-target="#main" hx-swap="innerHTML">
+                            <div class="b-txmem-head">What you paid</div>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">$</span>
+                                <input name="purchase_price" type="number" class="form-control" min="0" step="0.01"
+                                       aria-label="Purchase price" required
+                                       value="{{ printf "%.2f" .Summary.Asset.PurchasePrice }}">
+                            </div>
+                            <input name="purchase_date" type="date" class="form-control form-control-sm"
+                                   aria-label="Purchase date" required
+                                   {{ if not .Summary.Asset.PurchaseDate.IsZero }}value="{{ .Summary.Asset.PurchaseDate.Format "2006-01-02" }}"{{ end }}>
+                            <button class="btn btn-sm btn-primary">Save</button>
+                        </form>
+                    </details>
                 </div>
             </div>
         </div>
@@ -279,7 +301,7 @@
                 return;
             }
 
-            const ink = window.budge ? window.budge.ink : '#78858f';
+            const ink = window.budge.ink;
 
             new Chart(canvas, {
                 type: "line",
@@ -288,9 +310,9 @@
                     datasets: [{
                         label: "Value",
                         data: data,
-                        borderColor: window.budge ? window.budge.primary : "#3d6b8f",
-                        backgroundColor: "rgba(61, 107, 143, 0.10)",
-                        pointBackgroundColor: window.budge ? window.budge.primary : "#3d6b8f",
+                        borderColor: window.budge.primary,
+                        backgroundColor: window.budge.primarySoft,
+                        pointBackgroundColor: window.budge.primary,
                         pointRadius: 3,
                         borderWidth: 2,
                         fill: true,
@@ -307,7 +329,7 @@
                             // frames the range rather than starting at zero.
                             beginAtZero: false,
                             border: {display: false},
-                            grid: {color: window.budge ? window.budge.grid : "#e6ecf0"},
+                            grid: {color: window.budge.grid},
                             ticks: {color: ink, callback: v => "$" + v.toLocaleString()}
                         },
                         x: {

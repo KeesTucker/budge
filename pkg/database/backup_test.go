@@ -2,6 +2,8 @@ package database
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +24,7 @@ func configured(t *testing.T) *Store {
 	require.NoError(t, store.CreateBudgetItem(models.BudgetItem{ID: "food", Name: "Groceries", Amount: 250, Frequency: "weekly"}))
 	require.NoError(t, store.SaveBudgetSalary(models.BudgetSalary{Salary: 100000, SalaryFrequency: "yearly", SavingsGoal: 250}))
 	require.NoError(t, store.SaveScheduleSettings(models.ScheduleSettings{AkahuEnabled: true, AkahuInterval: "6h", AkahuLastRun: time.Now()}))
+	require.NoError(t, store.SaveCategorySettings(models.CategorySettings{Rules: []models.CategoryRule{{ID: "loan", Contains: "LOAN INTEREST", Broad: "General", Specific: "Housing"}}}))
 	require.NoError(t, store.UpdateAkahuSettings(models.IntegrationAkahuSettings{AppToken: "app_x", UserToken: "user_y", LastSync: time.Now()}))
 	return store
 }
@@ -59,6 +62,12 @@ func TestBackupRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "6h", schedule.AkahuInterval)
 	assert.True(t, schedule.AkahuEnabled)
+
+	categories, err := fresh.GetCategorySettings()
+	require.NoError(t, err)
+	own := slices.DeleteFunc(categories.Rules, func(r models.CategoryRule) bool { return strings.HasPrefix(r.ID, groupRulePrefix) })
+	require.Len(t, own, 1)
+	assert.Equal(t, "Housing", own[0].Specific)
 }
 
 func TestBackupLeavesTokensOut(t *testing.T) {

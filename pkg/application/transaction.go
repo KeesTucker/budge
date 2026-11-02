@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/TheQueenIsDead/budge/pkg/database/models"
@@ -30,17 +31,10 @@ type TransactionRow struct {
 	MemoryID    string
 	MemoryTitle string
 
-	// Insight names the spend insight the transaction counts towards, and
-	// Excluded says the owner has taken it out of that insight. Both are empty
-	// for a transaction no insight would count.
+	// Insight names the spend insight the transaction counts towards, empty
+	// for one no insight counts. Assigned says the owner filed it by hand.
 	Insight  string
-	Excluded bool
-
-	// Assigned is the group the owner put the transaction in by hand, empty
-	// when the rules decide. Automatic names the insight the rules alone
-	// would count it in, for offering to hand it back to them.
-	Assigned  string
-	Automatic string
+	Assigned bool
 }
 
 // TransactionDay groups a day's transactions under a single heading, which is
@@ -54,10 +48,9 @@ type TransactionDay struct {
 	Rows []TransactionRow
 }
 
-// insightOf names the insight a transaction would count towards, whether or
-// not the owner has excluded it.
+// insightOf names the insight a transaction counts towards.
 func insightOf(tx models.Transaction) string {
-	if key, ok := classifySpend(tx); ok {
+	if key, ok := ClassifySpend(tx); ok {
 		if group, found := SpendGroupByKey(key); found {
 			return group.Label
 		}
@@ -72,13 +65,7 @@ func BuildTransactionRow(tx models.Transaction) TransactionRow {
 		Title:       tx.Merchant.Name,
 		Icon:        "bi-receipt",
 		Insight:     insightOf(tx),
-		Excluded:    InsightExcluded(tx.Id),
-	}
-	row.Assigned, _ = assignedGroup(tx.Id)
-	if key, ok := ruleGroup(tx); ok {
-		if group, found := SpendGroupByKey(key); found {
-			row.Automatic = group.Label
-		}
+		Assigned:    strings.HasPrefix(tx.Category.Id, models.OverrideCategoryPrefix) || strings.HasPrefix(tx.Category.Id, models.KeptCategoryPrefix),
 	}
 	if row.Title == "" {
 		row.Title = tx.Description
@@ -162,6 +149,33 @@ func (app *Application) Transactions(c echo.Context) error {
 		})
 	}
 
+	// Uncategorised spending is counted across everything recent, whatever the
+	// search, so the warning about it is the same wherever the page is opened.
+	since := uncategorisedSince(time.Now())
+	recent, err := app.store.ReadTransactionsByDate(since, time.Now())
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	budgetItems, err := app.store.ReadBudgetItems()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	items := budgetItemsByCategory(budgetItems)
+	var uncategorisedCount int
+	var uncategorisedTotal float64
+	for _, t := range recent {
+		if isUncategorisedSpend(t, since, items) {
+			uncategorisedCount++
+			uncategorisedTotal -= t.Amount
+		}
+	}
+	uncategorisedOnly := c.QueryParam("uncategorised") != ""
+	if uncategorisedOnly {
+		transactions = slices.DeleteFunc(transactions, func(t models.Transaction) bool {
+			return !isUncategorisedSpend(t, since, items)
+		})
+	}
+
 	// Totals cover every match, not just the page on screen, so narrowing the
 	// search tells you what the whole result set is worth.
 	var in, out float64
@@ -217,8 +231,6 @@ func (app *Application) Transactions(c echo.Context) error {
 		"series":    series,
 		"days":      days,
 		"memories":  memories,
-		"groups":    SpendGroups(),
-		"kinds":     models.MemoryKinds,
 		"search":    search,
 		"account":   account,
 		"from":      c.QueryParam("from"),
@@ -232,7 +244,28 @@ func (app *Application) Transactions(c echo.Context) error {
 		"showing":   len(page),
 		"hasMore":   total > len(page),
 		"nextLimit": limit + transactionPageSize,
+
+		"uncategorisedCount": uncategorisedCount,
+		"uncategorisedTotal": uncategorisedTotal,
+		"uncategorisedOnly":  uncategorisedOnly,
+		"uncategorisedWeeks": untargetedWindowWeeks,
 	})
+}
+
+// uncategorisedSince is how far back the transactions page looks for
+// uncategorised spending: the same 13 weeks the budget measures untargeted
+// categories over, so the warning and the budget agree.
+func uncategorisedSince(now time.Time) time.Time {
+	return isoWeekStart(now).AddDate(0, 0, -7*untargetedWindowWeeks)
+}
+
+// isUncategorisedSpend reports whether a transaction is recent spending that
+// neither Akahu, a rule nor the owner has categorised: what lands in the
+// budget's Uncategorised group. Rows there the owner has marked as savings or
+// ignored are a decision already made, so they are not counted.
+func isUncategorisedSpend(tx models.Transaction, since time.Time, items map[string]models.BudgetItem) bool {
+	broad, _, ok := countedSpend(tx, items)
+	return ok && broad == uncategorisedGroup && !tx.Date.Before(since)
 }
 
 // transactionDateRange reads an inclusive range of local dates into the times
@@ -419,68 +452,4 @@ func nonEmptyBand(data []float64) ([]float64, bool) {
 		}
 	}
 	return nil, false
-}
-
-// transactionExclude is the "No category" choice, which leaves a transaction
-// out of the insights whatever the rules say.
-const transactionExclude = "none"
-
-// TransactionSetCategory puts a transaction in a spend group by hand, hands
-// it back to the rules, or takes its category away, and answers with
-// its control in both layouts, like the memory control.
-func (app *Application) TransactionSetCategory(c echo.Context) error {
-	tx, err := app.store.GetTransaction(c.Param("id"))
-	if err != nil || tx.Id == "" {
-		return echo.NewHTTPError(http.StatusNotFound, "No such transaction.")
-	}
-
-	choice := c.FormValue("group")
-	group, found := SpendGroupByKey(choice)
-	if choice != "" && choice != transactionExclude && !found {
-		return echo.NewHTTPError(http.StatusBadRequest, "No such category.")
-	}
-
-	assigned := choice
-	if choice == transactionExclude {
-		assigned = ""
-	}
-	assignments, err := app.store.AssignInsight(tx.Id, assigned)
-	if err != nil {
-		app.Toast(c, "Error", "Could not change the category.")
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	SetInsightAssignments(assignments)
-
-	exclusions, err := app.store.SetInsightExclusion(tx.Id, choice == transactionExclude)
-	if err != nil {
-		app.Toast(c, "Error", "Could not change the insights.")
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	SetInsightExclusions(exclusions)
-
-	row := BuildTransactionRow(tx)
-	switch {
-	case choice == transactionExclude:
-		app.Toast(c, "Saved", "No category, so not counted in any insight.")
-	case choice != "":
-		app.Toast(c, "Saved", "Counted in "+group.Label+".")
-	case row.Automatic != "":
-		app.Toast(c, "Saved", "Back to automatic, which counts it in "+row.Automatic+".")
-	default:
-		app.Toast(c, "Saved", "Back to automatic, which counts it nowhere.")
-	}
-
-	layout := c.FormValue("layout")
-	if !slices.Contains(transactionMemoryLayouts, layout) {
-		layout = transactionMemoryLayouts[0]
-	}
-	groups := SpendGroups()
-	controls := make([]map[string]interface{}, 0, len(transactionMemoryLayouts))
-	for _, each := range transactionMemoryLayouts {
-		controls = append(controls, map[string]interface{}{
-			"ID": tx.Id, "Insight": row.Insight, "Automatic": row.Automatic, "Excluded": row.Excluded,
-			"Assigned": row.Assigned, "Groups": groups, "Layout": each, "OOB": each != layout,
-		})
-	}
-	return c.Render(http.StatusOK, "transactions.category.swap", controls)
 }

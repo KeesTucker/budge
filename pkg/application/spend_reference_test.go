@@ -20,6 +20,8 @@ func referenced(txType, particulars, reference string, amount float64) models.Tr
 }
 
 func TestClassifySpendReadsReferences(t *testing.T) {
+	withGroups(t)
+
 	ownTransfer := referenced("TRANSFER", "groceries", "", -200)
 	ownTransfer.Category.Name = "Transfer"
 	foodyPayee := referenced("PAYMENT", "", "rent", -50)
@@ -35,12 +37,11 @@ func TestClassifySpendReadsReferences(t *testing.T) {
 		matched  bool
 	}{
 		{"paying a flatmate for groceries", referenced("PAYMENT", "Groceries", "", -80), "groceries", true},
-		{"a transfer to a person counts too", referenced("TRANSFER", "", "wk 3 food", -60), "groceries", true},
 		{"being paid back for petrol", referenced("DIRECT CREDIT", "petrol", "", 40), "petrol", true},
 		{"a power share", referenced("PAYMENT", "", "POWER-SEPT", -95), "power", true},
 		{"takeaways", referenced("PAYMENT", "", "takeaways fri", -25), "eating-out", true},
 		{"a merchant named in a reference", referenced("PAYMENT", "", "hello fresh", -60), "groceries", true},
-		{"however it is written", referenced("TRANSFER", "HELLO-FRESH", "wk2", -60), "groceries", true},
+		{"however it is written", referenced("PAYMENT", "HELLO-FRESH", "wk2", -60), "groceries", true},
 		{"paid back for one", referenced("DIRECT CREDIT", "", "HelloFresh", 30), "groceries", true},
 		{"gas is petrol", referenced("PAYMENT", "", "gas money", -30), "petrol", true},
 		{"no keyword in the reference", referenced("PAYMENT", "rent", "", -400), "", false},
@@ -51,7 +52,7 @@ func TestClassifySpendReadsReferences(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			key, ok := ClassifySpend(tt.tx)
+			key, ok := classify(tt.tx)
 			assert.Equal(t, tt.matched, ok)
 			assert.Equal(t, tt.expected, key)
 		})
@@ -59,13 +60,14 @@ func TestClassifySpendReadsReferences(t *testing.T) {
 }
 
 func TestBuildSpendBucketsNetsRepayments(t *testing.T) {
+	withGroups(t)
 	group, ok := SpendGroupByKey("groceries")
 	require.True(t, ok)
-	transactions := []models.Transaction{
+	transactions := filedAll(
 		spendTransaction("Supermarkets and grocery stores", "PAK'nSAVE", -150, day(-1)),
 		referenced("PAYMENT", "groceries", "", -50),
 		referenced("DIRECT CREDIT", "", "groceries", 75),
-	}
+	)
 
 	buckets := BuildSpendBuckets(transactions, group, CadenceWeekly, 1, now)
 	require.Len(t, buckets, 1)
@@ -74,13 +76,14 @@ func TestBuildSpendBucketsNetsRepayments(t *testing.T) {
 }
 
 func TestBuildSpendMerchantsLeavesOutRepayers(t *testing.T) {
+	withGroups(t)
 	group, _ := SpendGroupByKey("groceries")
 	repaid := referenced("DIRECT CREDIT", "groceries", "", 75)
 	repaid.Description = "A FLATMATE"
-	transactions := []models.Transaction{
+	transactions := filedAll(
 		spendTransaction("Supermarkets and grocery stores", "PAK'nSAVE", -150, day(-1)),
 		repaid,
-	}
+	)
 
 	merchants := BuildSpendMerchants(transactions, group, day(-7), day(1), 5)
 	require.Len(t, merchants, 1)
@@ -95,6 +98,7 @@ func TestSpendSummaryBarsBelowZero(t *testing.T) {
 }
 
 func TestClassifySpendNamedMerchants(t *testing.T) {
+	withGroups(t)
 	tests := []struct {
 		name string
 		tx   models.Transaction
@@ -108,28 +112,19 @@ func TestClassifySpendNamedMerchants(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			key, ok := ClassifySpend(tt.tx)
+			key, ok := classify(tt.tx)
 			assert.True(t, ok)
 			assert.Equal(t, "groceries", key)
 		})
 	}
 
 	refund := spendTransaction("", "HelloFresh", 120, now)
-	_, ok := ClassifySpend(refund)
+	_, ok := classify(refund)
 	assert.False(t, ok, "a refund is not read by merchant, only by reference")
 }
 
-// withRules puts the owner's own rules in place for one test.
-func withRules(t *testing.T, groups map[string]models.SpendRule) {
-	t.Helper()
-	SetSpendRules(models.SpendRules{Groups: groups})
-	t.Cleanup(func() { spendRules.Store(nil) })
-}
-
 func TestClassifySpendOwnersRules(t *testing.T) {
-	withRules(t, map[string]models.SpendRule{
-		"groceries": {Keywords: []string{"veges", "Farmers Market"}, Merchants: []string{"Ooooby"}},
-	})
+	withGroups(t, ownRules("groceries", []string{"veges", "Farmers Market"}, []string{"Ooooby"}))
 
 	tests := []struct {
 		name     string
@@ -145,23 +140,21 @@ func TestClassifySpendOwnersRules(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			key, ok := ClassifySpend(tt.tx)
+			key, ok := classify(tt.tx)
 			assert.Equal(t, tt.matched, ok)
 			assert.Equal(t, tt.expected, key)
 		})
 	}
 }
 
-func TestGroupRuleFallsBackToBuiltIn(t *testing.T) {
-	group, _ := SpendGroupByKey("groceries")
-	rule, custom := GroupRule(group)
-	assert.False(t, custom)
-	assert.Equal(t, group.Keywords, rule.Keywords)
+func TestMatchTiers(t *testing.T) {
+	withGroups(t, ownGroup("custom-lunches", "Lunches", []string{"uber"}, nil))
 
-	withRules(t, map[string]models.SpendRule{"groceries": {Keywords: []string{"veges"}}})
-	rule, custom = GroupRule(group)
-	assert.True(t, custom)
-	assert.Equal(t, []string{"veges"}, rule.Keywords)
+	order := spendTransaction("Taxi, rideshare, and on-demand transport services", "Uber", -32, now)
+	order.Description = "Uber *Eats H"
+	order.Meta.Reference = "uber lunch"
+	key, _ := classify(order)
+	assert.Equal(t, "eating-out", key, "a merchant rule beats a keyword, even in a category listed first")
 }
 
 func TestParseRuleList(t *testing.T) {
@@ -170,31 +163,30 @@ func TestParseRuleList(t *testing.T) {
 	assert.Empty(t, parseRuleList(" , \n "))
 }
 
-func TestClassifySpendLeavesOutExclusions(t *testing.T) {
-	tx := referenced("PAYMENT", "", "groceries", 2200)
+func TestClassifySpendKeepsAkahuOnly(t *testing.T) {
+	tx := referenced("PAYMENT", "", "groceries", -2200)
 	tx.Id = "trans_bond"
-	SetInsightExclusions(models.InsightExclusions{TransactionIDs: []string{"trans_bond"}})
-	t.Cleanup(func() { insightExclusions.Store(nil) })
+	withGroups(t, func(s *models.CategorySettings) {
+		s.Overrides = append(s.Overrides, models.CategoryOverride{TransactionID: "trans_bond", AkahuOnly: true})
+	})
 
-	_, ok := ClassifySpend(tx)
-	assert.False(t, ok, "an excluded transaction counts towards nothing")
-	assert.Equal(t, "Groceries", insightOf(tx), "but still says which insight it was taken out of")
-	row := BuildTransactionRow(tx)
-	assert.True(t, row.Excluded)
+	_, ok := classify(tx)
+	assert.False(t, ok, "kept on Akahu's category, no rule puts it in a group")
+	assert.True(t, BuildTransactionRow(filed(tx)).Assigned, "and it shows as the owner's choice")
 }
 
 func TestClassifySpendMerchantInDescription(t *testing.T) {
-	withRules(t, map[string]models.SpendRule{"eating-out": {Merchants: []string{"Uber Eats"}}})
+	withGroups(t)
 
 	order := spendTransaction("Taxi, rideshare, and on-demand transport services", "Uber", -32, now)
 	order.Description = "Uber *Eats H"
-	key, ok := ClassifySpend(order)
+	key, ok := classify(order)
 	assert.True(t, ok, "Akahu files Uber Eats under Uber, and only the description tells")
 	assert.Equal(t, "eating-out", key)
 
 	ride := spendTransaction("Taxi, rideshare, and on-demand transport services", "Uber", -18, now)
 	ride.Description = "Uber *Trip H"
-	_, ok = ClassifySpend(ride)
+	_, ok = classify(ride)
 	assert.False(t, ok, "a ride is still a ride")
 }
 
@@ -204,22 +196,19 @@ func TestClassifySpendDualFuelRetailer(t *testing.T) {
 	assert.Equal(t, "power", key)
 }
 
-func TestClassifySpendHonoursAssignments(t *testing.T) {
+func TestClassifySpendHonoursOverrides(t *testing.T) {
 	tx := referenced("TRANSFER", "", "", 40)
 	tx.Id = "trans_market"
-	_, ok := ClassifySpend(tx)
+	tx.Category.Name = "Transfer"
+	withGroups(t)
+	_, ok := classify(tx)
 	require.False(t, ok, "no rule catches a transfer with no reference")
 
-	SetInsightAssignments(models.InsightAssignments{Groups: map[string]string{"trans_market": "groceries", "trans_gone": "custom-deleted"}})
-	t.Cleanup(func() { insightAssignments.Store(nil) })
-
-	key, ok := ClassifySpend(tx)
+	withGroups(t, func(s *models.CategorySettings) {
+		s.Overrides = append(s.Overrides, models.CategoryOverride{TransactionID: "trans_market", Broad: models.SpendGroupsBroad, Specific: "Groceries"})
+	})
+	key, ok := classify(tx)
 	assert.True(t, ok)
-	assert.Equal(t, "groceries", key, "a transaction put in a group by hand counts there")
-	assert.Equal(t, "groceries", BuildTransactionRow(tx).Assigned)
-
-	gone := referenced("TRANSFER", "", "", 40)
-	gone.Id = "trans_gone"
-	_, ok = ClassifySpend(gone)
-	assert.False(t, ok, "a group that no longer exists is ignored")
+	assert.Equal(t, "groceries", key, "a transaction filed by hand under a group's category counts there")
+	assert.True(t, BuildTransactionRow(filed(tx)).Assigned)
 }

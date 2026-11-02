@@ -123,9 +123,8 @@ func TestRenderTransactions(t *testing.T) {
 		assert.Contains(t, page, "Sun 6 Sep 2026")
 	})
 
-	t.Run("offers to put each transaction in a category by hand", func(t *testing.T) {
-		assert.Contains(t, page, `hx-post="/transactions/`+transactions[0].Id+`/category"`)
-		assert.Contains(t, page, `<option value="groceries">Groceries</option>`)
+	t.Run("offers to categorise each transaction by hand", func(t *testing.T) {
+		assert.Contains(t, page, `hx-get="/transactions/`+transactions[0].Id+`/category?layout=m"`)
 	})
 
 	t.Run("renders a card list for phones and a table for desktop", func(t *testing.T) {
@@ -693,31 +692,15 @@ func TestRenderTransactionsChartUnsplit(t *testing.T) {
 	})
 }
 
-func TestRenderTransactionCategorySwap(t *testing.T) {
-	control := func(layout string, oob bool, extra map[string]interface{}) map[string]interface{} {
-		data := map[string]interface{}{"ID": "trans_a", "Insight": "Groceries", "Automatic": "Groceries", "Excluded": false,
-			"Assigned": "", "Groups": SpendGroups(), "Layout": layout, "OOB": oob}
-		for k, v := range extra {
-			data[k] = v
-		}
-		return data
-	}
+func TestRenderTransactionCategoryForm(t *testing.T) {
+	view := TransactionCategoryView{ID: "trans_a", Layout: "m", Loaded: true, Broad: models.SpendGroupsBroad, Specific: "Groceries",
+		Source: "a rule", RuleFiled: true, Insight: "Groceries"}
+	form := renderTemplate(t, "transactions.category.form", view)
+	assert.Contains(t, form, "counts in Groceries", "says which spend group it feeds")
+	assert.Contains(t, form, `name="akahu"`, "a rule's choice can be put back to Akahu's")
 
-	page := renderTemplate(t, "transactions.category.swap", []map[string]interface{}{
-		control("m", false, map[string]interface{}{"Assigned": "petrol", "Insight": "Petrol"}),
-		control("d", true, map[string]interface{}{"Assigned": "petrol", "Insight": "Petrol"}),
-	})
-	assert.Contains(t, page, `id="txcat-m-trans_a"`)
-	assert.Contains(t, page, `id="txcat-d-trans_a" hx-swap-oob="true"`)
-	assert.Contains(t, page, `<option value="petrol" selected>Petrol</option>`)
-	assert.Contains(t, page, "Automatic (Groceries)", "says what automatic would do")
-	assert.Contains(t, page, "bi-tag-fill")
-
-	excluded := renderTemplate(t, "transactions.category", control("m", false, map[string]interface{}{"Excluded": true}))
-	assert.Contains(t, excluded, `<option value="none" selected>No category</option>`, "one control also takes the category away")
-	assert.Contains(t, excluded, "No category, chosen by you")
-
-	automatic := renderTemplate(t, "transactions.category", control("m", false, nil))
-	assert.Contains(t, automatic, `<option value="" selected>Automatic (Groceries)</option>`)
-	assert.Contains(t, automatic, "bi-pie-chart-fill")
+	view.RuleFiled, view.Overridden = false, true
+	form = renderTemplate(t, "transactions.category.form", view)
+	assert.NotContains(t, form, `name="akahu"`)
+	assert.Contains(t, form, "Undo my change")
 }
