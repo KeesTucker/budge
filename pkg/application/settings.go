@@ -2,8 +2,6 @@ package application
 
 import (
 	"net/http"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/TheQueenIsDead/budge/pkg/database/models"
@@ -63,7 +61,7 @@ func (app *Application) Settings(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	categories, err := app.buildCategoriesView()
+	categories, err := app.buildCategoriesView("")
 	if err != nil {
 		app.Toast(c, "Error", "Could not read category rules.")
 		return c.NoContent(http.StatusInternalServerError)
@@ -73,7 +71,6 @@ func (app *Application) Settings(c echo.Context) error {
 		"accounts":       accounts,
 		"removed":        removed.Accounts,
 		"restoring":      removed.Restoring(),
-		"spendRules":     spendRuleViews(),
 		"categories":     categories,
 		"akahuAppToken":  akahuConfig.AppToken,
 		"akahuUserToken": akahuConfig.UserToken,
@@ -199,197 +196,6 @@ func (app *Application) SettingsTrackAccount(c echo.Context) error {
 	return app.renderSettingsAccounts(c)
 }
 
-// SpendRuleView is one spend group's rules as the settings page edits them:
-// the keyword and merchant rules filing into the group's own category.
-type SpendRuleView struct {
-	Group     SpendGroup
-	Keywords  string
-	Merchants string
-
-	// Own marks a group the owner made, which can be deleted.
-	Own bool
-}
-
-// groupRulePrefix starts the ID of every rule made for a spend group, as the
-// migration that moved groups onto rules named them.
+// groupRulePrefix starts the ID of every rule the migration made for a spend
+// group.
 const groupRulePrefix = "group-"
-
-func groupRuleID(key, match string) string {
-	return groupRulePrefix + key + "-" + match + "-" + newID()
-}
-
-// groupCategory is the custom category a spend group's rules file into.
-func groupCategory(settings models.CategorySettings, key string) (models.CustomCategory, bool) {
-	for _, category := range settings.Categories {
-		if category.SpendGroup == key {
-			return category, true
-		}
-	}
-	return models.CustomCategory{}, false
-}
-
-// groupRules lists what a group's rules of one kind look for.
-func groupRules(settings models.CategorySettings, category models.CustomCategory, match string) []string {
-	var values []string
-	for _, rule := range settings.Rules {
-		if rule.Match == match && strings.EqualFold(rule.Specific, category.Specific) {
-			values = append(values, rule.Contains)
-		}
-	}
-	return values
-}
-
-func spendRuleViews() []SpendRuleView {
-	var settings models.CategorySettings
-	if loaded := categorySettings.Load(); loaded != nil {
-		settings = *loaded
-	}
-	groups := SpendGroups()
-	views := make([]SpendRuleView, len(groups))
-	for i, group := range groups {
-		view := SpendRuleView{Group: group, Own: !builtInGroup(group.Key)}
-		if category, ok := groupCategory(settings, group.Key); ok {
-			view.Keywords = strings.Join(groupRules(settings, category, models.MatchKeyword), ", ")
-			view.Merchants = strings.Join(groupRules(settings, category, models.MatchMerchant), ", ")
-		}
-		views[i] = view
-	}
-	return views
-}
-
-// replaceGroupRules swaps a group's rules of one kind for new ones, in the
-// place the old ones held, so the order rules are tried in stays put.
-func replaceGroupRules(rules []models.CategoryRule, category models.CustomCategory, match string, values []string) []models.CategoryRule {
-	at := -1
-	kept := make([]models.CategoryRule, 0, len(rules))
-	for _, rule := range rules {
-		if rule.Match == match && strings.EqualFold(rule.Specific, category.Specific) {
-			if at < 0 {
-				at = len(kept)
-			}
-			continue
-		}
-		kept = append(kept, rule)
-	}
-	fresh := make([]models.CategoryRule, 0, len(values))
-	for _, value := range values {
-		fresh = append(fresh, models.CategoryRule{
-			ID: groupRuleID(category.SpendGroup, match), Match: match, Contains: value,
-			Broad: category.Broad, Specific: category.Specific,
-		})
-	}
-	if at < 0 {
-		return append(kept, fresh...)
-	}
-	return slices.Concat(kept[:at], fresh, kept[at:])
-}
-
-// parseRuleList reads a comma or line separated list as typed into a field,
-// dropping blanks and repeats however they are cased.
-func parseRuleList(text string) []string {
-	seen := make(map[string]bool)
-	list := []string{}
-	for _, item := range strings.FieldsFunc(text, func(r rune) bool { return r == ',' || r == '\n' }) {
-		item = strings.Join(strings.Fields(item), " ")
-		if item == "" || seen[strings.ToLower(item)] {
-			continue
-		}
-		seen[strings.ToLower(item)] = true
-		list = append(list, item)
-	}
-	return list
-}
-
-// SettingsSaveSpendRule stores the keywords and merchants a spend group
-// matches on, as rules filing into the group's category. A built in group
-// whose category was deleted gets it back.
-func (app *Application) SettingsSaveSpendRule(c echo.Context) error {
-	group, ok := SpendGroupByKey(c.Param("key"))
-	if !ok {
-		return echo.NewHTTPError(http.StatusNotFound, "no such spend group")
-	}
-	settings, err := app.store.GetCategorySettings()
-	if err != nil {
-		return err
-	}
-	category, ok := groupCategory(settings, group.Key)
-	if !ok {
-		category = models.CustomCategory{ID: newID(), Broad: models.SpendGroupsBroad, Specific: group.Label, SpendGroup: group.Key}
-		settings.Categories = append(settings.Categories, category)
-	}
-	settings.Rules = replaceGroupRules(settings.Rules, category, models.MatchKeyword, parseRuleList(c.FormValue("keywords")))
-	settings.Rules = replaceGroupRules(settings.Rules, category, models.MatchMerchant, parseRuleList(c.FormValue("merchants")))
-	if err := app.store.SaveCategorySettings(settings); err != nil {
-		app.Toast(c, "Error", "Could not save the insight rules.")
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	app.Toast(c, "Success", "Insight rules saved.")
-	return c.Render(http.StatusOK, "settings.spend", spendRuleViews())
-}
-
-// customGroupPrefix starts the key of every group the owner makes.
-const customGroupPrefix = "custom-"
-
-// SettingsAddSpendGroup makes a new group of the owner's own, empty until its
-// keywords and merchants are filled in.
-func (app *Application) SettingsAddSpendGroup(c echo.Context) error {
-	label := strings.Join(strings.Fields(c.FormValue("label")), " ")
-	if label == "" {
-		app.Toast(c, "Error", "Give the group a name.")
-		return c.Render(http.StatusOK, "settings.spend", spendRuleViews())
-	}
-	key := customGroupPrefix + lettersOnly(label)
-	if key == customGroupPrefix {
-		key = customGroupPrefix + newID()
-	}
-	if _, taken := SpendGroupByKey(key); taken {
-		app.Toast(c, "Error", "There is already a group called "+label+".")
-		return c.Render(http.StatusOK, "settings.spend", spendRuleViews())
-	}
-
-	settings, err := app.store.GetCategorySettings()
-	if err != nil {
-		return err
-	}
-	// Budget targets are keyed by the category name alone, so a group cannot
-	// share its name with a category that already exists.
-	if slices.ContainsFunc(settings.Categories, func(c models.CustomCategory) bool { return strings.EqualFold(c.Specific, label) }) {
-		app.Toast(c, "Error", "There is already a category called "+label+".")
-		return c.Render(http.StatusOK, "settings.spend", spendRuleViews())
-	}
-	settings.Categories = append(settings.Categories, models.CustomCategory{
-		ID: newID(), Broad: models.SpendGroupsBroad, Specific: label, SpendGroup: key,
-	})
-	if err := app.store.SaveCategorySettings(settings); err != nil {
-		app.Toast(c, "Error", "Could not add the group.")
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	app.Toast(c, "Success", label+" added. Give it keywords or merchants to fill it.")
-	return c.Render(http.StatusOK, "settings.spend", spendRuleViews())
-}
-
-// SettingsDeleteSpendGroup removes one of the owner's own groups, with its
-// category and the rules filing into it. What they matched goes back to
-// Akahu's category, or to another rule.
-func (app *Application) SettingsDeleteSpendGroup(c echo.Context) error {
-	key := c.Param("key")
-	if builtInGroup(key) {
-		return echo.NewHTTPError(http.StatusBadRequest, "built in groups cannot be deleted")
-	}
-	settings, err := app.store.GetCategorySettings()
-	if err != nil {
-		return err
-	}
-	if category, ok := groupCategory(settings, key); ok {
-		settings.Categories = slices.DeleteFunc(settings.Categories, func(c models.CustomCategory) bool { return c.SpendGroup == key })
-		settings.Rules = slices.DeleteFunc(settings.Rules, func(r models.CategoryRule) bool {
-			return strings.EqualFold(r.Specific, category.Specific)
-		})
-	}
-	if err := app.store.SaveCategorySettings(settings); err != nil {
-		app.Toast(c, "Error", "Could not delete the group.")
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	app.Toast(c, "Success", "Group deleted.")
-	return c.Render(http.StatusOK, "settings.spend", spendRuleViews())
-}

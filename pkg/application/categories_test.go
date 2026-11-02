@@ -28,12 +28,18 @@ func TestCategoryRulesEndToEnd(t *testing.T) {
 	}
 
 	body := post(app.SettingsAddCategory, url.Values{"broad": {"General"}, "specific": {"Housing"}})
-	assert.Contains(t, body, "General / <span class=\"fw-semibold\">Housing</span>")
+	assert.Contains(t, body, `<span class="fw-semibold">Housing</span>`)
+	assert.Contains(t, body, `<span class="text-muted small ms-1">General</span>`)
+
+	settings, err := app.store.GetCategorySettings()
+	require.NoError(t, err)
+	housing := ownerAdded(settings).Categories[0]
+	assert.Empty(t, housing.SpendGroup, "only a category ticked for Insights is a spend group")
 
 	body = post(app.SettingsAddRule, url.Values{"contains": {"loan interest"}, "type": {"LOAN"}, "category": {"housing"}})
 	assert.Contains(t, body, "· 1 transaction\n", "the rule reports what it matched")
 
-	settings, err := app.store.GetCategorySettings()
+	settings, err = app.store.GetCategorySettings()
 	require.NoError(t, err)
 	settings = ownerAdded(settings)
 	require.Len(t, settings.Rules, 1)
@@ -101,18 +107,33 @@ func TestSettingsAddRuleNeedsAKnownCategory(t *testing.T) {
 }
 
 func TestSettingsCategoriesRenders(t *testing.T) {
+	groceries, _ := SpendGroupByKey("groceries")
 	html := renderTemplate(t, "settings.categories", CategoriesView{
-		Custom: []models.CustomCategory{{ID: "c1", Broad: "General", Specific: "Housing"}},
-		Rules:  []RuleView{{CategoryRule: models.CategoryRule{ID: "r1", Contains: "LOAN INTEREST", Type: "LOAN", Broad: "General", Specific: "Housing"}}},
-		Groups: []CategoryOptionGroup{{Broad: "General", Options: []CategoryOption{{Broad: "General", Specific: "Housing", Custom: true}}}},
-		Types:  []string{"LOAN"},
-		Error:  "Something was refused.",
+		Blocks: []CategoryBlock{
+			{Key: "c1", DomID: "catblk-c1", Broad: "General", Specific: "Housing", Custom: true, First: true, Open: true,
+				Rules: []RuleView{{CategoryRule: models.CategoryRule{ID: "r1", Contains: "LOAN INTEREST", Type: "LOAN", Broad: "General", Specific: "Housing"}}}},
+			{Key: "group-groceries", DomID: "catblk-g", Broad: models.SpendGroupsBroad, Specific: "Groceries", Custom: true, BuiltIn: true, Group: &groceries, Last: true,
+				Rules: []RuleView{{CategoryRule: models.CategoryRule{ID: "r2", Match: models.MatchKeyword, Contains: "grocer"}, Matches: 3}}, Matches: 3},
+			{Key: "Fuel stations", DomID: "catblk-fuel", Broad: "Transport", Specific: "Fuel stations",
+				Rules: []RuleView{{CategoryRule: models.CategoryRule{ID: "r3", Match: models.MatchType, Type: "ATM"}}}},
+		},
+		Akahu: []CategoryOptionGroup{{Broad: "Transport", Options: []CategoryOption{{Broad: "Transport", Specific: "Fuel stations"}}}},
+		Types: []string{"LOAN", "ATM"},
+		Error: "Something was refused.",
 	})
 
 	assert.Contains(t, html, "Something was refused.")
+	assert.Contains(t, html, `id="catblk-c1" open`, "the category acted on stays open")
 	assert.Contains(t, html, `hx-delete="/settings/rules/r1"`)
-	assert.Contains(t, html, `class="text-warning ms-1"`, "a rule matching nothing is flagged")
-	assert.Contains(t, html, "Housing ★")
+	assert.Contains(t, html, `hx-put="/settings/rules/r1"`, "a rule can be edited in place")
+	assert.Contains(t, html, `class="text-warning small ms-1"`, "a rule matching nothing is flagged")
+	assert.Contains(t, html, "Reference word")
+	assert.Contains(t, html, "Every <span class=\"badge-category\">ATM</span> debit")
+	assert.Contains(t, html, `hx-put="/settings/categories/c1"`, "the owner's category can be renamed")
+	assert.NotContains(t, html, `hx-put="/settings/categories/group-groceries"`, "a built in group keeps its name")
+	assert.NotContains(t, html, `hx-put="/settings/categories/Fuel stations"`, "and Akahu's are not ours to rename")
+	assert.Contains(t, html, "Insights: Groceries")
+	assert.Contains(t, html, `<option value="Fuel stations">`, "a rule can be added to one of Akahu's categories")
 	assert.Contains(t, html, `hx-target="this"`, "the preview must not inherit the form's target and replace the card")
 }
 

@@ -1971,3 +1971,22 @@ a.b-acct:focus-visible {
     min-width: 8rem;
     max-width: 20rem;
 }
+
+/* Settings: each category folds open into its rules, and each rule into its
+   editor. */
+.b-catblk > summary {
+    list-style: none;
+    cursor: pointer;
+}
+
+.b-catblk > summary::-webkit-details-marker {
+    display: none;
+}
+
+.b-catblk-caret {
+    transition: transform 0.15s ease;
+}
+
+.b-catblk[open] > summary .b-catblk-caret {
+    transform: rotate(90deg);
+}

@@ -136,7 +136,7 @@ func (app *Application) TransactionSetCategory(c echo.Context) error {
 			})
 		}
 	}
-	if err := app.store.SaveCategorySettings(settings); err != nil {
+	if err := app.saveCategories(settings); err != nil {
 		return err
 	}
 

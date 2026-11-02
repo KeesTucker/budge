@@ -11,6 +11,22 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+// parseRuleList reads a comma or line separated list as typed into a field,
+// dropping blanks and repeats however they are cased.
+func parseRuleList(text string) []string {
+	seen := make(map[string]bool)
+	list := []string{}
+	for _, item := range strings.FieldsFunc(text, func(r rune) bool { return r == ',' || r == '\n' }) {
+		item = strings.Join(strings.Fields(item), " ")
+		if item == "" || seen[strings.ToLower(item)] {
+			continue
+		}
+		seen[strings.ToLower(item)] = true
+		list = append(list, item)
+	}
+	return list
+}
+
 // budgetSpreader spreads monthly payments over the month they cover. Paid
 // on the day it leaves, a $200 power bill is a blown week and three quiet
 // ones; spread, it is about $46 a week, which is what it actually costs. A

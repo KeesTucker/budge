@@ -206,11 +206,30 @@ func (cs CategorySettings) Override(transactionID string) (CategoryOverride, boo
 func (cs CategorySettings) Key() []byte    { return []byte("categories") }
 func (cs CategorySettings) Bucket() []byte { return buckets.SettingsBucket }
 
-// MatchingRule returns the index of the first rule that matches, or -1.
+// MatchTier is how early a rule of this kind is tried. The narrowest go
+// first: a type rule names exactly what it files, a merchant or text rule
+// names the business, and a keyword is only a word someone typed. So an Uber
+// Eats order referenced "food" is eating out, not groceries, whichever
+// category is listed first.
+func MatchTier(match string) int {
+	switch match {
+	case MatchType:
+		return 0
+	case MatchKeyword:
+		return 2
+	}
+	return 1
+}
+
+// MatchingRule returns the index of the rule that files a transaction, or -1:
+// the first that matches in the narrowest tier, and within a tier the first
+// in the list, which runs in category order.
 func (cs CategorySettings) MatchingRule(tx Transaction) int {
-	for i, rule := range cs.Rules {
-		if rule.Matches(tx) {
-			return i
+	for tier := 0; tier <= 2; tier++ {
+		for i, rule := range cs.Rules {
+			if MatchTier(rule.Match) == tier && rule.Matches(tx) {
+				return i
+			}
 		}
 	}
 	return -1

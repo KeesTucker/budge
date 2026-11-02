@@ -123,16 +123,6 @@ func TestClassifySpendNamedMerchants(t *testing.T) {
 	assert.False(t, ok, "a refund is not read by merchant, only by reference")
 }
 
-// ownRules swaps a built in group's keywords and merchants for the owner's,
-// the way the settings page saves them.
-func ownRules(key string, keywords, merchants []string) func(*models.CategorySettings) {
-	return func(s *models.CategorySettings) {
-		category, _ := groupCategory(*s, key)
-		s.Rules = replaceGroupRules(s.Rules, category, models.MatchKeyword, keywords)
-		s.Rules = replaceGroupRules(s.Rules, category, models.MatchMerchant, merchants)
-	}
-}
-
 func TestClassifySpendOwnersRules(t *testing.T) {
 	withGroups(t, ownRules("groceries", []string{"veges", "Farmers Market"}, []string{"Ooooby"}))
 
@@ -155,10 +145,16 @@ func TestClassifySpendOwnersRules(t *testing.T) {
 			assert.Equal(t, tt.expected, key)
 		})
 	}
+}
 
-	views := spendRuleViews()
-	assert.Equal(t, "veges, Farmers Market", views[0].Keywords, "the settings card reads the rules back")
-	assert.Equal(t, "Ooooby", views[0].Merchants)
+func TestMatchTiers(t *testing.T) {
+	withGroups(t, ownGroup("custom-lunches", "Lunches", []string{"uber"}, nil))
+
+	order := spendTransaction("Taxi, rideshare, and on-demand transport services", "Uber", -32, now)
+	order.Description = "Uber *Eats H"
+	order.Meta.Reference = "uber lunch"
+	key, _ := classify(order)
+	assert.Equal(t, "eating-out", key, "a merchant rule beats a keyword, even in a category listed first")
 }
 
 func TestParseRuleList(t *testing.T) {
