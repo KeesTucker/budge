@@ -239,9 +239,39 @@ func (app *Application) SettingsDeleteCategory(c echo.Context) error {
 	return app.renderCategories(c, "")
 }
 
+// ruleFromForm reads the rule being added or previewed. A type rule matches
+// on the type alone, so any text typed for it is dropped.
+func ruleFromForm(value func(string) string) models.CategoryRule {
+	rule := models.CategoryRule{
+		Match:            value("match"),
+		Contains:         strings.TrimSpace(value("contains")),
+		Type:             value("type"),
+		IncludeTransfers: value("include_transfers") != "",
+	}
+	switch rule.Match {
+	case models.MatchType:
+		rule.Contains = ""
+	case models.MatchText, models.MatchMerchant, models.MatchKeyword:
+	default:
+		rule.Match = models.MatchText
+	}
+	return rule
+}
+
+// ruleReady reports whether a rule has what it needs to match anything.
+func ruleReady(rule models.CategoryRule) bool {
+	if rule.Match == models.MatchType {
+		return rule.Type != ""
+	}
+	return rule.Contains != ""
+}
+
 func (app *Application) SettingsAddRule(c echo.Context) error {
-	contains := strings.TrimSpace(c.FormValue("contains"))
-	if contains == "" {
+	rule := ruleFromForm(c.FormValue)
+	if !ruleReady(rule) {
+		if rule.Match == models.MatchType {
+			return app.renderCategories(c, "Pick the type of transaction the rule files.")
+		}
 		return app.renderCategories(c, "A rule needs some text to match.")
 	}
 
@@ -258,14 +288,8 @@ func (app *Application) SettingsAddRule(c echo.Context) error {
 		return app.renderCategories(c, "Pick a category for the rule to file transactions under.")
 	}
 
-	settings.Rules = append(settings.Rules, models.CategoryRule{
-		ID:               newID(),
-		Contains:         contains,
-		Type:             c.FormValue("type"),
-		Broad:            target.Broad,
-		Specific:         target.Specific,
-		IncludeTransfers: c.FormValue("include_transfers") != "",
-	})
+	rule.ID, rule.Broad, rule.Specific = newID(), target.Broad, target.Specific
+	settings.Rules = append(settings.Rules, rule)
 	if err := app.store.SaveCategorySettings(settings); err != nil {
 		return err
 	}
@@ -333,12 +357,8 @@ func buildRulePreview(rule models.CategoryRule, txs []models.Transaction, settin
 
 // SettingsPreviewRule answers the rule form as it is typed into.
 func (app *Application) SettingsPreviewRule(c echo.Context) error {
-	rule := models.CategoryRule{
-		Contains:         strings.TrimSpace(c.QueryParam("contains")),
-		Type:             c.QueryParam("type"),
-		IncludeTransfers: c.QueryParam("include_transfers") != "",
-	}
-	if rule.Contains == "" {
+	rule := ruleFromForm(c.QueryParam)
+	if !ruleReady(rule) {
 		return c.Render(http.StatusOK, "settings.rules.preview", RulePreview{})
 	}
 	settings, err := app.store.GetCategorySettings()

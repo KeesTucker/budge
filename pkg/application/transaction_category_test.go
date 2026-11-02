@@ -71,6 +71,7 @@ func TestCategorisingOneTransaction(t *testing.T) {
 
 		settings, err := app.store.GetCategorySettings()
 		require.NoError(t, err)
+		settings = ownerAdded(settings)
 		require.Len(t, settings.Rules, 1)
 		assert.Equal(t, "PAY The Cylinder Guy Limited", settings.Rules[0].Contains)
 		assert.Empty(t, settings.Overrides)

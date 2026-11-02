@@ -556,6 +556,7 @@ func TestBuildInsightPeriods(t *testing.T) {
 }
 
 func TestBuildSpendBucketsCarriesPaybacksForward(t *testing.T) {
+	withGroups(t)
 	groceries, ok := SpendGroupByKey("groceries")
 	require.True(t, ok)
 
@@ -573,6 +574,7 @@ func TestBuildSpendBucketsCarriesPaybacksForward(t *testing.T) {
 		spendTransaction("Supermarkets and grocery stores", "Countdown", -60, thisWeek),
 	}
 	transactions[2].Date = twoAgo
+	transactions = filedAll(transactions...)
 
 	buckets := BuildSpendBuckets(transactions, groceries, CadenceWeekly, 4, now)
 	require.Len(t, buckets, 4)

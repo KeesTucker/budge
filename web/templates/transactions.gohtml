@@ -139,7 +139,6 @@
                             <div class="b-tx-amount {{ if gt .Amount 0.0 }}text-success{{ else }}text-danger{{ end }}">
                                 {{ .Amount | fmtCurrency }}
                             </div>
-                            {{ template "transactions.insight" (dict "ID" .Id "Insight" .Insight "Automatic" .Automatic "Excluded" .Excluded "Assigned" .Assigned "Groups" $.groups "Layout" "m") }}
                             {{ template "transactions.category" (dict "ID" .Id "Layout" "m") }}
                             {{ template "transactions.memory" (dict "ID" .Id "MemoryID" .MemoryID "MemoryTitle" .MemoryTitle "Layout" "m" "Options" $.memories) }}
                         </div>
@@ -183,8 +182,7 @@
                                 {{ .Amount | fmtCurrency }}
                             </td>
                             <td class="b-txmem-cell">
-                                <div class="d-flex align-items-center justify-content-end gap-1">
-                                    {{ template "transactions.insight" (dict "ID" .Id "Insight" .Insight "Automatic" .Automatic "Excluded" .Excluded "Assigned" .Assigned "Groups" $.groups "Layout" "d") }}
+                                <div class="d-flex justify-content-end gap-1">
                                     {{ template "transactions.category" (dict "ID" .Id "Layout" "d") }}
                                     {{ template "transactions.memory" (dict "ID" .Id "MemoryID" .MemoryID "MemoryTitle" .MemoryTitle "Layout" "d" "Options" $.memories) }}
                                 </div>
@@ -394,40 +392,11 @@
 </details>
 {{ end }}
 
-{{/* Which spend group a transaction counts towards in the insights: whatever
-     the rules say, a group chosen by hand, or none at all, for the odd one a
-     rule gets wrong. Drawn twice like the memory control, for the same reason. */}}
-{{ define "transactions.insight" }}
-<details class="b-txmem" id="txins-{{ .Layout }}-{{ .ID }}"{{ if .OOB }} hx-swap-oob="true"{{ end }}>
-    {{ $state := "" }}
-    {{ if .Excluded }}{{ $state = "none" }}{{ else if .Assigned }}{{ $state = .Assigned }}{{ end }}
-    <summary class="b-txmem-toggle{{ if or .Assigned .Excluded }} b-txmem-in{{ end }}"
-             title="{{ if .Excluded }}No spend group, chosen by you{{ else if .Assigned }}Counted in {{ .Insight }}, chosen by you{{ else if .Insight }}Counted in {{ .Insight }} automatically{{ else }}Add to a spend group{{ end }}"
-             aria-label="{{ if .Excluded }}No spend group. Change spend group{{ else if .Insight }}Counted in {{ .Insight }}. Change spend group{{ else }}Add to a spend group{{ end }}">
-        <i class="bi {{ if or .Assigned .Insight }}bi-pie-chart-fill{{ else }}bi-pie-chart{{ end }}"></i>
-    </summary>
-    <form class="b-tl-form b-txmem-form" hx-post="/transactions/{{ .ID }}/insight"
-          hx-target="#txins-{{ .Layout }}-{{ .ID }}" hx-swap="outerHTML">
-        <input type="hidden" name="layout" value="{{ .Layout }}">
-        <div class="b-txmem-head">Count this in</div>
-        <select class="form-select form-select-sm" name="group" aria-label="Which spend group">
-            <option value=""{{ if eq $state "" }} selected{{ end }}>Automatic{{ if .Automatic }} ({{ .Automatic }}){{ else }} (none){{ end }}</option>
-            {{ range .Groups }}
-                <option value="{{ .Key }}"{{ if eq .Key $state }} selected{{ end }}>{{ .Label }}</option>
-            {{ end }}
-            <option value="none"{{ if eq $state "none" }} selected{{ end }}>None</option>
-        </select>
-        <button class="btn btn-sm btn-primary">Save</button>
-    </form>
-</details>
-{{ end }}
-
-{{ define "transactions.insight.swap" }}{{ range . }}{{ template "transactions.insight" . }}{{ end }}{{ end }}
-
 {{ define "transactions.category.form" }}
 <form class="d-flex flex-wrap gap-2" hx-post="/transactions/{{ .ID }}/category" hx-target="this" hx-swap="none">
     <div class="b-txmem-head">
         {{ if .Specific }}{{ .Broad }} / {{ .Specific }}<span class="fw-normal text-muted"> · from {{ .Source }}</span>{{ else }}Uncategorised{{ end }}
+        {{ if .Insight }}<span class="fw-normal text-muted"> · counts in {{ .Insight }}</span>{{ end }}
     </div>
     <select class="form-select form-select-sm" name="category" aria-label="File under">
         <option value="">File under…</option>
@@ -448,6 +417,10 @@
     <button class="btn btn-sm btn-primary">Save</button>
     {{ if .Overridden }}
     <button class="btn btn-sm btn-outline-secondary" name="clear" value="1">Undo my change</button>
+    {{ else if .RuleFiled }}
+    {{/* For the odd one a rule gets wrong, such as a large payment carrying
+         the usual "groceries" reference. */}}
+    <button class="btn btn-sm btn-outline-secondary" name="akahu" value="1">Keep Akahu's category</button>
     {{ end }}
     <a class="small ms-auto align-self-center" href="/settings#categories">Categories &amp; rules</a>
 </form>

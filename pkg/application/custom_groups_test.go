@@ -9,16 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func withCustomGroups(t *testing.T, custom ...models.CustomSpendGroup) {
-	t.Helper()
-	SetSpendRules(models.SpendRules{Custom: custom})
-	t.Cleanup(func() { spendRules.Store(nil) })
-}
-
 func TestCustomGroups(t *testing.T) {
-	withCustomGroups(t,
-		models.CustomSpendGroup{Key: "custom-rent", Label: "Rent", SpendRule: models.SpendRule{Keywords: []string{"rent"}}},
-		models.CustomSpendGroup{Key: "custom-lunches", Label: "Lunches", SpendRule: models.SpendRule{Merchants: []string{"Addington Fo"}}},
+	withGroups(t,
+		ownGroup("custom-rent", "Rent", []string{"rent"}, nil),
+		ownGroup("custom-lunches", "Lunches", nil, []string{"Addington Fo"}),
 	)
 
 	groups := SpendGroups()
@@ -30,42 +24,42 @@ func TestCustomGroups(t *testing.T) {
 	rent := spendTransaction("", "", -510, now)
 	rent.Type = "STANDING ORDER"
 	rent.Description = "Vvv Pm Rent 2/20 Rochest"
-	key, ok := ClassifySpend(rent)
+	key, ok := classify(rent)
 	assert.True(t, ok)
 	assert.Equal(t, "custom-rent", key, "a standing order Akahu never categorised")
 
 	lunch := spendTransaction("", "", -17.30, now)
 	lunch.Type = "CREDIT CARD"
 	lunch.Description = "Addington Fo"
-	key, _ = ClassifySpend(lunch)
+	key, _ = classify(lunch)
 	assert.Equal(t, "custom-lunches", key)
 
 	current := referenced("PAYMENT", "", "current acc", -20)
-	_, ok = ClassifySpend(current)
+	_, ok = classify(current)
 	assert.False(t, ok, "rent matches the start of a word, so current does not")
 }
 
 func TestCustomGroupsTakePrecedence(t *testing.T) {
-	withCustomGroups(t, models.CustomSpendGroup{Key: "custom-milkrun", Label: "Milkrun", SpendRule: models.SpendRule{Merchants: []string{"Milkrun"}}})
+	withGroups(t, ownGroup("custom-milkrun", "Milkrun", nil, []string{"Milkrun"}))
 
-	key, ok := ClassifySpend(spendTransaction("Supermarkets and grocery stores", "Milkrun", -52.45, now))
+	key, ok := classify(spendTransaction("Supermarkets and grocery stores", "Milkrun", -52.45, now))
 	assert.True(t, ok)
 	assert.Equal(t, "custom-milkrun", key, "the owner's narrower group wins over groceries")
 }
 
 func TestBudgetLine(t *testing.T) {
-	withCustomGroups(t, models.CustomSpendGroup{Key: "custom-rent", Label: "Rent", SpendRule: models.SpendRule{Keywords: []string{"rent"}}})
+	withGroups(t, ownGroup("custom-rent", "Rent", []string{"rent"}, nil))
 
 	shop := spendTransaction("Supermarkets and grocery stores", "PAK'nSAVE", -120, now)
 	shop.Category.Groups.PersonalFinance.Name = "Food"
-	broad, specific, _, amount, ok := budgetLine(shop)
+	broad, specific, _, amount, ok := budgetLine(filed(shop))
 	assert.True(t, ok)
-	assert.Equal(t, budgetGroupsBroad, broad, "a purchase a group matches is budgeted under the group")
+	assert.Equal(t, budgetGroupsBroad, broad, "a purchase a group takes in is budgeted under the group")
 	assert.Equal(t, "Groceries", specific)
 	assert.Equal(t, 120.0, amount)
 
 	repaid := referenced("PAYMENT", "", "groceries", 40)
-	_, specific, _, amount, ok = budgetLine(repaid)
+	_, specific, _, amount, ok = budgetLine(filed(repaid))
 	assert.True(t, ok)
 	assert.Equal(t, "Groceries", specific)
 	assert.Equal(t, -40.0, amount, "being paid back takes from the group")
@@ -73,42 +67,46 @@ func TestBudgetLine(t *testing.T) {
 	rent := spendTransaction("", "", -510, now)
 	rent.Type = "STANDING ORDER"
 	rent.Description = "Flat Rent"
-	_, specific, name, _, ok := budgetLine(rent)
+	_, specific, name, _, ok := budgetLine(filed(rent))
 	assert.True(t, ok)
 	assert.Equal(t, "Rent", specific)
 	assert.Equal(t, "Flat Rent", name, "with no merchant, the description names who was paid")
 
 	haircut := spendTransaction("Haircuts and treatments", "Valentinos", -67, now)
 	haircut.Category.Groups.PersonalFinance.Name = "Appearance"
-	broad, specific, _, _, ok = budgetLine(haircut)
+	broad, specific, _, _, ok = budgetLine(filed(haircut))
 	assert.True(t, ok)
-	assert.Equal(t, "Appearance", broad, "anything no group matches keeps its Akahu category")
+	assert.Equal(t, "Appearance", broad, "anything no group takes in keeps its Akahu category")
 	assert.Equal(t, "Haircuts and treatments", specific)
 
-	broad, _, _, _, ok = budgetLine(spendTransaction("", "", -30, now))
+	broad, _, _, _, ok = budgetLine(filed(spendTransaction("", "", -30, now)))
 	assert.True(t, ok)
 	assert.Equal(t, uncategorisedGroup, broad, "uncategorised spending no group matches is still counted")
 }
 
 func TestCashGroup(t *testing.T) {
+	withGroups(t)
+
 	atm := spendTransaction("", "", -1003.50, now)
 	atm.Type = "ATM"
 	atm.Description = "Acu Aap9480 Eastgate Sho"
-	key, ok := ClassifySpend(atm)
+	key, ok := classify(atm)
 	assert.True(t, ok)
 	assert.Equal(t, "cash", key, "any ATM withdrawal, whatever the machine")
 }
 
 func TestMoneyIn(t *testing.T) {
+	withGroups(t)
+
 	pay := spendTransaction("", "", 2950, now)
 	pay.Type = "CREDIT"
-	assert.Equal(t, 2950.0, moneyIn(pay, false), "pay is money in")
+	assert.Equal(t, 2950.0, moneyIn(filed(pay), false), "pay is money in")
 
 	sold := referenced("PAYMENT", "", "wheels", 280)
-	assert.Equal(t, 280.0, moneyIn(sold, false), "so is someone paying you")
+	assert.Equal(t, 280.0, moneyIn(filed(sold), false), "so is someone paying you")
 
 	repaid := referenced("PAYMENT", "groceries", "", 40)
-	assert.Zero(t, moneyIn(repaid, false), "a repayment a spend group already nets off is not counted twice")
+	assert.Zero(t, moneyIn(filed(repaid), false), "a repayment a spend group already nets off is not counted twice")
 
 	own := spendTransaction("Transfer", "Transfer", 500, now)
 	own.Type = "TRANSFER"

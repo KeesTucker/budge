@@ -21,6 +21,8 @@ type TransactionCategoryView struct {
 	Specific   string
 	Source     string // where the current category came from
 	Overridden bool
+	RuleFiled  bool   // a rule filed it, so it can be kept on Akahu's category
+	Insight    string // the spend group its category feeds
 	RuleText   string // what a rule for transactions like this one would match
 	Groups     []CategoryOptionGroup
 }
@@ -37,6 +39,8 @@ func categorySource(tx models.Transaction) (string, bool) {
 	switch {
 	case strings.HasPrefix(tx.Category.Id, models.OverrideCategoryPrefix):
 		return "you", true
+	case strings.HasPrefix(tx.Category.Id, models.KeptCategoryPrefix):
+		return "Akahu, kept by you", true
 	case strings.HasPrefix(tx.Category.Id, models.RuleCategoryPrefix):
 		return "a rule", false
 	case tx.Category.Name == "" && tx.Category.Groups.PersonalFinance.Name == "":
@@ -68,6 +72,8 @@ func (app *Application) TransactionCategoryForm(c echo.Context) error {
 		Specific:   tx.Category.Name,
 		Source:     source,
 		Overridden: overridden,
+		RuleFiled:  strings.HasPrefix(tx.Category.Id, models.RuleCategoryPrefix),
+		Insight:    insightOf(tx),
 		RuleText:   strings.TrimSpace(spendMerchant(tx)),
 		Groups:     categoryOptionGroups(categoryCatalogue(settings.Categories, txs)),
 	})
@@ -95,10 +101,14 @@ func (app *Application) TransactionSetCategory(c echo.Context) error {
 	settings.Overrides = kept
 
 	scope := c.FormValue("scope")
-	if c.FormValue("clear") != "" {
+	switch {
+	case c.FormValue("clear") != "":
 		scope = "clear"
+	case c.FormValue("akahu") != "":
+		scope = "akahu"
+		settings.Overrides = append(settings.Overrides, models.CategoryOverride{TransactionID: tx.Id, AkahuOnly: true})
 	}
-	if scope != "clear" {
+	if scope != "clear" && scope != "akahu" {
 		txs, err := app.store.ReadTransactions()
 		if err != nil {
 			return err

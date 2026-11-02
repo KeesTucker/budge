@@ -124,21 +124,12 @@ func NewApplication(store *database.Store, integrations *integrations.Integratio
 	app.store = store
 	app.http = echo.New()
 
-	rules, err := store.GetSpendRules()
+	categories, err := store.GetCategorySettings()
 	if err != nil {
 		return nil, err
 	}
-	SetSpendRules(rules)
-	exclusions, err := store.GetInsightExclusions()
-	if err != nil {
-		return nil, err
-	}
-	SetInsightExclusions(exclusions)
-	assignments, err := store.GetInsightAssignments()
-	if err != nil {
-		return nil, err
-	}
-	SetInsightAssignments(assignments)
+	SetCategorySettings(categories)
+	store.OnCategories = SetCategorySettings
 	if err := app.refreshPayCycle(); err != nil {
 		return nil, err
 	}
@@ -233,7 +224,6 @@ func NewApplication(store *database.Store, integrations *integrations.Integratio
 	app.http.POST("/settings/spend-groups", app.SettingsAddSpendGroup)
 	app.http.DELETE("/settings/spend-groups/:key", app.SettingsDeleteSpendGroup)
 	app.http.POST("/settings/spend-rules/:key", app.SettingsSaveSpendRule)
-	app.http.POST("/settings/spend-rules/:key/reset", app.SettingsResetSpendRule)
 	app.http.POST("/settings/accounts/:id/untrack", app.SettingsUntrackAccount)
 	app.http.POST("/settings/accounts/:id/track", app.SettingsTrackAccount)
 	app.http.GET("/settings/backup", app.SettingsExport)
@@ -262,7 +252,6 @@ func NewApplication(store *database.Store, integrations *integrations.Integratio
 	app.http.DELETE("/transactions/:id/memory", app.TransactionRemoveFromMemory)
 	app.http.GET("/transactions/:id/category", app.TransactionCategoryForm)
 	app.http.POST("/transactions/:id/category", app.TransactionSetCategory)
-	app.http.POST("/transactions/:id/insight", app.TransactionSetInsight)
 
 	// Portfolio: everything owned and owed. Assets tracked by hand sit under it
 	// alongside the synced accounts, so their URLs sit under it too.

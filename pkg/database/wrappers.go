@@ -239,70 +239,6 @@ func (s *Store) SaveTimelinePreferences(prefs models.TimelinePreferences) error 
 	return Update[models.TimelinePreferences](s.db, prefs)
 }
 
-/* Spend rules */
-
-// GetSpendRules returns the owner's own spend group rules. Unset means every
-// group uses its built in rule.
-func (s *Store) GetSpendRules() (models.SpendRules, error) {
-	rules, err := Get[models.SpendRules](s.db, models.SpendRules{}.Key())
-	if err != nil {
-		return models.SpendRules{}, nil
-	}
-	return rules, nil
-}
-
-func (s *Store) SaveSpendRules(rules models.SpendRules) error {
-	return Update[models.SpendRules](s.db, rules)
-}
-
-// GetInsightExclusions returns the transactions left out of the insights.
-func (s *Store) GetInsightExclusions() (models.InsightExclusions, error) {
-	exclusions, err := Get[models.InsightExclusions](s.db, models.InsightExclusions{}.Key())
-	if err != nil {
-		return models.InsightExclusions{}, nil
-	}
-	return exclusions, nil
-}
-
-// SetInsightExclusion leaves a transaction out of the insights, or puts it
-// back, and returns the exclusions as they now stand.
-func (s *Store) SetInsightExclusion(id string, excluded bool) (models.InsightExclusions, error) {
-	exclusions, err := s.GetInsightExclusions()
-	if err != nil {
-		return exclusions, err
-	}
-	exclusions.TransactionIDs = slices.DeleteFunc(exclusions.TransactionIDs, func(t string) bool { return t == id })
-	if excluded {
-		exclusions.TransactionIDs = append(exclusions.TransactionIDs, id)
-	}
-	return exclusions, Update[models.InsightExclusions](s.db, exclusions)
-}
-
-// GetInsightAssignments returns the transactions put in a spend group by hand.
-func (s *Store) GetInsightAssignments() (models.InsightAssignments, error) {
-	assignments, err := Get[models.InsightAssignments](s.db, models.InsightAssignments{}.Key())
-	if err != nil || assignments.Groups == nil {
-		return models.InsightAssignments{Groups: map[string]string{}}, nil
-	}
-	return assignments, nil
-}
-
-// AssignInsight puts a transaction in a spend group by hand, or hands it back
-// to the rules when the group is empty, and returns the assignments as they
-// now stand.
-func (s *Store) AssignInsight(id, group string) (models.InsightAssignments, error) {
-	assignments, err := s.GetInsightAssignments()
-	if err != nil {
-		return assignments, err
-	}
-	if group == "" {
-		delete(assignments.Groups, id)
-	} else {
-		assignments.Groups[id] = group
-	}
-	return assignments, Update[models.InsightAssignments](s.db, assignments)
-}
-
 // GetBudgetSpread returns the payments the budget spreads over a month.
 func (s *Store) GetBudgetSpread() (models.BudgetSpread, error) {
 	spread, err := Get[models.BudgetSpread](s.db, models.BudgetSpread{}.Key())
@@ -424,15 +360,6 @@ func (s *Store) ExportBackup() (models.Backup, error) {
 		return backup, err
 	}
 	backup.RemovedAccounts = removed.Accounts
-	if rules, err := s.GetSpendRules(); err == nil && len(rules.Groups) > 0 {
-		backup.SpendRules = &rules
-	}
-	if exclusions, err := s.GetInsightExclusions(); err == nil {
-		backup.InsightExclusions = exclusions.TransactionIDs
-	}
-	if assignments, err := s.GetInsightAssignments(); err == nil && len(assignments.Groups) > 0 {
-		backup.InsightAssignments = assignments.Groups
-	}
 	if spread, err := s.GetBudgetSpread(); err == nil {
 		backup.BudgetMonthly = spread.Monthly
 		backup.BudgetNotMonthly = spread.Ignore
@@ -468,44 +395,6 @@ func (s *Store) ImportBackup(backup models.Backup) error {
 		}
 	}
 
-	// A group the backup has a rule for takes the backup's; the rest are kept.
-	rules, err := s.GetSpendRules()
-	if err != nil {
-		return err
-	}
-	if backup.SpendRules != nil {
-		if rules.Groups == nil {
-			rules.Groups = make(map[string]models.SpendRule)
-		}
-		for key, rule := range backup.SpendRules.Groups {
-			rules.Groups[key] = rule
-		}
-		// The owner's own groups too, by key, the backup's copy winning.
-		for _, group := range backup.SpendRules.Custom {
-			i := slices.IndexFunc(rules.Custom, func(g models.CustomSpendGroup) bool { return g.Key == group.Key })
-			if i >= 0 {
-				rules.Custom[i] = group
-			} else {
-				rules.Custom = append(rules.Custom, group)
-			}
-		}
-	}
-
-	exclusions, err := s.GetInsightExclusions()
-	if err != nil {
-		return err
-	}
-	exclusions.TransactionIDs = unionStrings(exclusions.TransactionIDs, backup.InsightExclusions)
-
-	// A transaction the backup assigns takes the backup's group.
-	assignments, err := s.GetInsightAssignments()
-	if err != nil {
-		return err
-	}
-	for id, group := range backup.InsightAssignments {
-		assignments.Groups[id] = group
-	}
-
 	spread, err := s.GetBudgetSpread()
 	if err != nil {
 		return err
@@ -524,15 +413,28 @@ func (s *Store) ImportBackup(backup models.Backup) error {
 		schedule = append(schedule, next)
 	}
 
+	// A backup from before spend groups moved onto rules carries them the old
+	// way, and is converted as the migration converted this instance.
+	legacy := legacySpend{exclusions: backup.InsightExclusions, assignments: backup.InsightAssignments}
+	if backup.SpendRules != nil {
+		legacy.rules = *backup.SpendRules
+	}
 	var categories []models.CategorySettings
-	if backup.Categories != nil {
+	if backup.Categories != nil || !legacy.empty() {
 		current, err := s.GetCategorySettings()
 		if err != nil {
 			return err
 		}
-		categories = append(categories, mergeCategorySettings(current, *backup.Categories))
+		if backup.Categories != nil {
+			current = mergeCategorySettings(current, *backup.Categories)
+		}
+		if !legacy.empty() {
+			current = convertSpendGroups(current, legacy)
+		}
+		categories = append(categories, current)
 	}
 
+	defer s.categoriesChanged()
 	return s.db.Update(func(tx *bolt.Tx) error {
 		return errors.Join(
 			putAll(tx, backup.Memories),
@@ -542,9 +444,6 @@ func (s *Store) ImportBackup(backup models.Backup) error {
 			putAll(tx, salary),
 			putAll(tx, schedule),
 			putAll(tx, []models.RemovedAccounts{removed}),
-			putAll(tx, []models.SpendRules{rules}),
-			putAll(tx, []models.InsightExclusions{exclusions}),
-			putAll(tx, []models.InsightAssignments{assignments}),
 			putAll(tx, []models.BudgetSpread{spread}),
 			putAll(tx, categories),
 		)
@@ -826,5 +725,18 @@ func (s *Store) GetCategorySettings() (models.CategorySettings, error) {
 }
 
 func (s *Store) SaveCategorySettings(settings models.CategorySettings) error {
-	return Update[models.CategorySettings](s.db, settings)
+	if err := Update[models.CategorySettings](s.db, settings); err != nil {
+		return err
+	}
+	s.categoriesChanged()
+	return nil
+}
+
+func (s *Store) categoriesChanged() {
+	if s.OnCategories == nil {
+		return
+	}
+	if settings, err := s.GetCategorySettings(); err == nil {
+		s.OnCategories(settings)
+	}
 }

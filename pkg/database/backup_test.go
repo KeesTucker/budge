@@ -2,6 +2,8 @@ package database
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,8 +65,9 @@ func TestBackupRoundTrip(t *testing.T) {
 
 	categories, err := fresh.GetCategorySettings()
 	require.NoError(t, err)
-	require.Len(t, categories.Rules, 1)
-	assert.Equal(t, "Housing", categories.Rules[0].Specific)
+	own := slices.DeleteFunc(categories.Rules, func(r models.CategoryRule) bool { return strings.HasPrefix(r.ID, groupRulePrefix) })
+	require.Len(t, own, 1)
+	assert.Equal(t, "Housing", own[0].Specific)
 }
 
 func TestBackupLeavesTokensOut(t *testing.T) {

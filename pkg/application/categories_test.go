@@ -35,6 +35,7 @@ func TestCategoryRulesEndToEnd(t *testing.T) {
 
 	settings, err := app.store.GetCategorySettings()
 	require.NoError(t, err)
+	settings = ownerAdded(settings)
 	require.Len(t, settings.Rules, 1)
 	assert.Equal(t, "General", settings.Rules[0].Broad, "the group comes from the chosen category")
 	assert.Equal(t, "Housing", settings.Rules[0].Specific)
@@ -83,7 +84,7 @@ func TestSettingsAddCategoryRefusals(t *testing.T) {
 
 			settings, err := app.store.GetCategorySettings()
 			require.NoError(t, err)
-			assert.Empty(t, settings.Categories)
+			assert.Empty(t, ownerAdded(settings).Categories)
 		})
 	}
 }
@@ -96,7 +97,7 @@ func TestSettingsAddRuleNeedsAKnownCategory(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "Pick a category")
 	settings, err := app.store.GetCategorySettings()
 	require.NoError(t, err)
-	assert.Empty(t, settings.Rules)
+	assert.Empty(t, ownerAdded(settings).Rules)
 }
 
 func TestSettingsCategoriesRenders(t *testing.T) {
